@@ -26,3 +26,20 @@ docker-compose up --build
 ## 开发
 
 参见实施计划中的 task-by-task 步骤。
+
+### 启用 Kimi 作为第二个 LLM
+
+编辑 `.env`：
+
+```bash
+KIMI_API_KEY=sk-your-kimi-key
+LLM_PROVIDERS=deepseek,kimi
+```
+
+重启后端容器：
+
+```bash
+docker-compose restart backend
+```
+
+诊断时会同时调用 DeepSeek 和 Kimi，每个问题产生 2 条 MentionResult。
