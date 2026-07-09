@@ -2,10 +2,11 @@
 import asyncio
 import os
 import tempfile
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
+from fastapi.testclient import TestClient  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
@@ -35,3 +36,18 @@ async def db_session(temp_db: str) -> AsyncGenerator[AsyncSession, None]:
         yield session
 
     await engine.dispose()
+
+
+@pytest.fixture
+def client(temp_db: str, monkeypatch) -> Generator[TestClient, None, None]:
+    """FastAPI TestClient with isolated test DB."""
+    from app.core.config import get_settings
+    from app.main import create_app
+
+    # Override DB URL before app creates engine
+    monkeypatch.setenv("DATABASE_URL", temp_db)
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+    app = create_app()
+    with TestClient(app) as c:
+        yield c
