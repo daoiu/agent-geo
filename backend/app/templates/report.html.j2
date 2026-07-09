@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>GEO 诊断报告 - {{ report.brand.name }}</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <h1>GEO 诊断报告</h1>
+  <p><strong>品牌：</strong>{{ report.brand.name }} ({{ report.brand.industry }})<br>
+     <strong>官网：</strong>{{ report.brand.official_url }}<br>
+     <strong>生成时间：</strong>{{ report.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+
+  <div class="summary">
+    <h2>执行摘要</h2>
+    <p>{{ report.summary }}</p>
+  </div>
+
+  <div class="score-overall">{{ "%.1f"|format(report.score_card.overall) }}<span style="font-size:14pt;">/100</span></div>
+
+  <h2>五维度评分</h2>
+  {% for dim in [report.score_card.authority, report.score_card.relevance, report.score_card.structure, report.score_card.freshness, report.score_card.verifiability] %}
+  <div class="dimension">
+    <span class="dimension-name">{{ dim.name }}</span>
+    <span class="dimension-score">{{ "%.1f"|format(dim.score) }}/10 (权重 {{ "%.0f%%"|format(dim.weight * 100) }})</span>
+    {% for ev in dim.evidence %}
+    <div class="evidence">• {{ ev }}</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  <h2>AI 提及率</h2>
+  <table>
+    <thead><tr><th>问题</th><th>LLM</th><th>提及</th><th>位置</th><th>情感</th></tr></thead>
+    <tbody>
+      {% for m in report.mentions %}
+      <tr>
+        <td>{{ m.question }}</td>
+        <td>{{ m.llm_provider }}</td>
+        <td>{{ '是' if m.brand_mentioned else '否' }}</td>
+        <td>{{ m.mention_position or '-' }}</td>
+        <td>{{ m.sentiment }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>优化建议 ({{ report.suggestions|length }} 条)</h2>
+  {% for s in report.suggestions %}
+  <div class="suggestion {{ s.priority }}">
+    <div class="suggestion-title">[{{ s.priority }}] {{ s.title }}</div>
+    <div>{{ s.detail }}</div>
+    {% if s.action_steps %}
+    <ul class="suggestion-steps">
+      {% for step in s.action_steps %}
+      <li>{{ step }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="evidence"><strong>预期效果：</strong>{{ s.expected_impact }}</div>
+  </div>
+  {% endfor %}
+
+  {% if report.site_audit and report.site_audit.crawl_status == 'partial' %}
+  <div class="summary" style="background:#fef3c7;">
+    <strong>⚠️ 注意：</strong>该网站为单页应用 (SPA)，爬虫无法读取 JS 渲染后的内容，诊断结果仅供参考。
+  </div>
+  {% endif %}
+</body>
+</html>

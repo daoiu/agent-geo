@@ -1,0 +1,70 @@
+@page {
+  size: A4;
+  margin: 20mm 15mm;
+}
+
+body {
+  font-family: "Noto Sans CJK SC", -apple-system, sans-serif;
+  font-size: 11pt;
+  color: #1f2937;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 24pt;
+  color: #111827;
+  margin: 0 0 8pt;
+  border-bottom: 2px solid #2563eb;
+  padding-bottom: 8pt;
+}
+
+h2 {
+  font-size: 16pt;
+  color: #1f2937;
+  margin: 16pt 0 8pt;
+}
+
+.score-overall {
+  font-size: 36pt;
+  font-weight: bold;
+  color: #2563eb;
+  text-align: center;
+  margin: 12pt 0;
+}
+
+.dimension {
+  margin: 6pt 0;
+  padding: 6pt 10pt;
+  background: #f3f4f6;
+  border-left: 3px solid #2563eb;
+}
+
+.dimension-name { font-weight: bold; }
+.dimension-score { float: right; color: #2563eb; }
+
+.evidence { font-size: 9pt; color: #6b7280; margin-top: 2pt; }
+
+.suggestion {
+  margin: 8pt 0;
+  padding: 8pt 12pt;
+  border: 1px solid #e5e7eb;
+  border-radius: 4pt;
+}
+
+.suggestion.P0 { border-left: 4pt solid #dc2626; }
+.suggestion.P1 { border-left: 4pt solid #f59e0b; }
+.suggestion.P2 { border-left: 4pt solid #10b981; }
+
+.suggestion-title { font-weight: bold; margin-bottom: 4pt; }
+.suggestion-steps { margin: 4pt 0 0 16pt; font-size: 10pt; }
+
+table { width: 100%; border-collapse: collapse; margin: 8pt 0; }
+th, td { border: 1px solid #e5e7eb; padding: 4pt 8pt; text-align: left; }
+th { background: #f9fafb; }
+
+.summary {
+  background: #eff6ff;
+  padding: 10pt;
+  border-radius: 4pt;
+  margin: 12pt 0;
+}
