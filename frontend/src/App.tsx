@@ -1,11 +1,13 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import NewDiagnosis from './pages/NewDiagnosis';
+import DiagnosisStatus from './pages/DiagnosisStatus';
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/diagnosis/new" element={<NewDiagnosis />} />
+        <Route path="/diagnosis/status/:taskId" element={<DiagnosisStatus />} />
         <Route
           path="/"
           element={
