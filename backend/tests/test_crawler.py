@@ -1,7 +1,6 @@
 """Tests for the web crawler. Uses unittest.mock.patch to mock HTTP calls."""
 from __future__ import annotations
 
-import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
