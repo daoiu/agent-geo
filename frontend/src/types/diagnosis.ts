@@ -12,7 +12,7 @@ export interface DiagnosisRequest {
   industry: string;
   official_url: string;
   target_questions: string[];
-  competitors?: string[];
+  competitors: string[];
   contact_email?: string;
 }
 

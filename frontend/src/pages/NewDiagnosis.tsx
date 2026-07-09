@@ -38,6 +38,20 @@ export default function NewDiagnosis() {
     update('target_questions', next);
   };
 
+  const [competitorInput, setCompetitorInput] = useState('');
+
+  const addCompetitor = () => {
+    const trimmed = competitorInput.trim();
+    if (trimmed && !form.competitors.includes(trimmed)) {
+      update('competitors', [...form.competitors, trimmed]);
+      setCompetitorInput('');
+    }
+  };
+
+  const removeCompetitor = (competitor: string) => {
+    update('competitors', form.competitors.filter((c) => c !== competitor));
+  };
+
   const canNextFromStep1 =
     form.brand_name.trim().length >= 1 &&
     form.industry.trim().length >= 1 &&
@@ -111,6 +125,45 @@ export default function NewDiagnosis() {
               </div>
             ))}
           </div>
+          <div className="mt-4 pt-4 border-t">
+            <label className="block text-sm font-medium mb-1">可选：竞品品牌</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={competitorInput}
+                onChange={(e) => setCompetitorInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCompetitor())}
+                className="flex-1 px-3 py-2 border rounded-md"
+                placeholder="如：华为"
+              />
+              <button
+                type="button"
+                onClick={addCompetitor}
+                className="px-4 py-2 bg-gray-100 border rounded-md text-sm hover:bg-gray-200"
+              >
+                添加
+              </button>
+            </div>
+            {form.competitors.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {form.competitors.map((c) => (
+                  <span
+                    key={c}
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-sm"
+                  >
+                    {c}
+                    <button
+                      type="button"
+                      onClick={() => removeCompetitor(c)}
+                      className="hover:text-blue-900 font-medium"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </WizardStep>
       )}
 
@@ -133,6 +186,7 @@ export default function NewDiagnosis() {
                 ))}
               </ul>
             </div>
+            <div><strong>竞品：</strong>{form.competitors.length > 0 ? form.competitors.join('、') : '无'}</div>
           </div>
           {submit.isError && (
             <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">
