@@ -167,3 +167,34 @@ Allow: /
 """
         result = Crawler.check_ai_bot_whitelist(robots)
         assert result["ClaudeBot"] is True
+
+    def test_allow_beats_disallow_on_tie(self) -> None:
+        """Allow: / and Disallow: / at same length → Allow wins (brief: Allow beats Disallow on ties)."""
+        from app.domain.crawler import Crawler
+        robots = """
+User-agent: GPTBot
+Allow: /
+Disallow: /
+"""
+        result = Crawler.check_ai_bot_whitelist(robots)
+        assert result["GPTBot"] is True
+
+    def test_multiple_useragent_blocks_merged(self) -> None:
+        """Multiple User-agent: <bot> blocks have their directives merged."""
+        from app.domain.crawler import Crawler
+        robots = """
+User-agent: GPTBot
+Disallow: /private
+
+User-agent: *
+Allow: /
+
+User-agent: GPTBot
+Disallow: /admin
+"""
+        # GPTBot is disallowed on both /private and /admin, so /
+        # should still be blocked (longer paths match first)
+        result = Crawler.check_ai_bot_whitelist(robots)
+        assert result["GPTBot"] is False
+        # ClaudeBot only matches * block, which allows /
+        assert result["ClaudeBot"] is True
