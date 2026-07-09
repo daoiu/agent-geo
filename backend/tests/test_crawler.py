@@ -89,3 +89,49 @@ async def test_fetch_robots_txt_returns_none_on_404(crawler: Crawler) -> None:
         text = await crawler.fetch_robots_txt("https://example.com")
 
     assert text is None
+
+
+class TestSchemaExtraction:
+    def test_extracts_organization_schema(self) -> None:
+        from app.domain.crawler import Crawler
+        html = '''
+        <html><head>
+        <script type="application/ld+json">
+        {"@context": "https://schema.org", "@type": "Organization", "name": "Acme"}
+        </script>
+        </head><body></body></html>
+        '''
+        result = Crawler.extract_schema_coverage(html)
+        assert result.has_organization is True
+        assert "Organization" in result.detected_schemas
+
+    def test_no_schemas_detected(self) -> None:
+        from app.domain.crawler import Crawler
+        html = "<html><body>plain</body></html>"
+        result = Crawler.extract_schema_coverage(html)
+        assert result.has_organization is False
+        assert result.detected_schemas == []
+
+
+class TestStructureExtraction:
+    def test_single_h1_is_valid(self) -> None:
+        from app.domain.crawler import Crawler
+        html = "<h1>Title</h1><h2>S1</h2><h3>Sub</h3><p>Text.</p>"
+        score = Crawler.extract_structure(html)
+        assert score.h1_count_ok is True
+        assert score.heading_hierarchy_valid is True
+
+    def test_multiple_h1_invalid(self) -> None:
+        from app.domain.crawler import Crawler
+        html = "<h1>A</h1><h1>B</h1>"
+        score = Crawler.extract_structure(html)
+        assert score.h1_count_ok is False
+
+
+class TestEeatExtraction:
+    def test_detects_contact_and_about_links(self) -> None:
+        from app.domain.crawler import Crawler
+        html = '<a href="/about">About</a><a href="/contact">Contact</a>'
+        result = Crawler.extract_eeat_signals(html, "https://example.com")
+        assert result.has_about_page is True
+        assert result.has_contact_page is True
