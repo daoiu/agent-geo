@@ -135,3 +135,35 @@ class TestEeatExtraction:
         result = Crawler.extract_eeat_signals(html, "https://example.com")
         assert result.has_about_page is True
         assert result.has_contact_page is True
+
+
+class TestAiBotWhitelist:
+    def test_open_bots_allowed_when_no_robots_txt(self) -> None:
+        from app.domain.crawler import Crawler
+        result = Crawler.check_ai_bot_whitelist(None)
+        # By default (no robots.txt), all bots allowed
+        assert result["GPTBot"] is True
+        assert result["ClaudeBot"] is True
+
+    def test_specific_bot_disallow(self) -> None:
+        from app.domain.crawler import Crawler
+        robots = """
+User-agent: GPTBot
+Disallow: /
+
+User-agent: *
+Allow: /
+"""
+        result = Crawler.check_ai_bot_whitelist(robots)
+        assert result["GPTBot"] is False
+        # * applies to unspecified bots including ClaudeBot
+        assert result["ClaudeBot"] is True
+
+    def test_explicit_allow(self) -> None:
+        from app.domain.crawler import Crawler
+        robots = """
+User-agent: ClaudeBot
+Allow: /
+"""
+        result = Crawler.check_ai_bot_whitelist(robots)
+        assert result["ClaudeBot"] is True

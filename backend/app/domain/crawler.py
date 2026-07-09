@@ -35,6 +35,32 @@ class Crawler:
         "Mozilla/5.0 (compatible; GEO-Agent/0.1; +https://example.com/bot)"
     )
 
+    AI_BOTS = (
+        "GPTBot",
+        "ClaudeBot",
+        "anthropic-ai",
+        "Bytespider",
+        "CCBot",
+        "Google-Extended",
+        "PerplexityBot",
+    )
+
+    @classmethod
+    def check_ai_bot_whitelist(cls, robots_txt: str | None) -> dict[str, bool]:
+        """For each known AI bot, determine if robots.txt allows it.
+
+        If robots_txt is None (file missing), all bots are considered allowed.
+        Otherwise, parse simple User-agent / Allow / Disallow rules.
+        """
+        if robots_txt is None:
+            return {bot: True for bot in cls.AI_BOTS}
+
+        rules = _parse_robots(robots_txt)
+        result: dict[str, bool] = {}
+        for bot in cls.AI_BOTS:
+            result[bot] = _bot_is_allowed(bot, rules)
+        return result
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._client: httpx.AsyncClient | None = None
@@ -258,3 +284,80 @@ def _parse_iso8601(value: str) -> datetime | None:
         return dt
     except ValueError:
         return None
+
+
+def _parse_robots(text: str) -> list[tuple[str | None, list[tuple[str, str]]]]:
+    """Parse robots.txt into list of (user_agent, [(directive, value)]).
+
+    Returns a list preserving order; consecutive User-agent lines for the
+    same agent are merged.
+    """
+    rules: list[tuple[str | None, list[tuple[str, str]]]] = []
+    current_agents: list[str] = []
+    current_directives: list[tuple[str, str]] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "user-agent":
+            if current_agents and current_directives:
+                for agent in current_agents:
+                    rules.append((agent.lower(), list(current_directives)))
+                current_directives = []
+            current_agents.append(value)
+        elif key in ("allow", "disallow"):
+            current_directives.append((key, value))
+        # ignore other directives (sitemap, crawl-delay, etc.)
+
+    if current_agents and current_directives:
+        for agent in current_agents:
+            rules.append((agent.lower(), list(current_directives)))
+
+    return rules
+
+
+def _bot_is_allowed(bot: str, rules: list[tuple[str | None, list[tuple[str, str]]]]) -> bool:
+    """Determine if a specific bot is allowed.
+
+    Rule selection: prefer rules where user-agent == bot; fall back to '*'.
+    Within selected rules, longest matching path wins; Allow beats Disallow
+    on ties.
+    """
+    bot_lower = bot.lower()
+    candidates: list[tuple[str, str]] = []
+    matched_specific = False
+
+    for agent, directives in rules:
+        if agent == bot_lower:
+            candidates = directives
+            matched_specific = True
+            break
+        if agent == "*" and not matched_specific:
+            candidates = directives
+
+    if not candidates:
+        return True  # no applicable rule → allowed by default
+
+    # Apply: for any directive matching "/", it's blanket; longest path wins.
+    applicable: list[tuple[str, str]] = []
+    for directive, path in candidates:
+        if path == "" or path == "/":
+            applicable.append((directive, "/"))
+        elif path:
+            applicable.append((directive, path))
+
+    if not applicable:
+        return True
+
+    # Group: pick the longest path; Allow > Disallow on ties
+    longest = max(len(p) for _, p in applicable)
+    final = [d for d in applicable if len(d[1]) == longest]
+    if any(d[0] == "disallow" for d in final):
+        return False
+    return True
