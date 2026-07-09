@@ -55,10 +55,15 @@ class ReportService:
             return str(pdf_path)
 
         report = Report(**json.loads(row.report_json))
-        render_pdf(report, str(pdf_path))
-
-        # Update DB with path
-        await self.repo.update_report(task_id, row.report_json, pdf_path=str(pdf_path))
+        try:
+            render_pdf(report, str(pdf_path))
+            # Mark PDF as available after successful render
+            report.pdf_available = True
+            updated_json = report.model_dump_json()
+            await self.repo.update_report(task_id, updated_json, pdf_path=str(pdf_path))
+        except Exception:
+            # PDF render failure does not fail the task; pdf_available stays False
+            await self.repo.update_report(task_id, row.report_json, pdf_path=None)
         return str(pdf_path)
 
 

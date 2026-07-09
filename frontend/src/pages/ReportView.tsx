@@ -46,13 +46,15 @@ export default function ReportView() {
                 {formatDate(report.created_at)}
               </p>
             </div>
-            <a
-              href={api.getPdfUrl(report.id)}
-              download
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              下载 PDF
-            </a>
+            {report.pdf_available && (
+              <a
+                href={api.getPdfUrl(report.id)}
+                download
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                下载 PDF
+              </a>
+            )}
           </div>
         </div>
 
