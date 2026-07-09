@@ -15,9 +15,10 @@
 我要实施 GEO 优化 Agent v0.1。这是一个 Web 应用，给非技术市场人员用的 GEO（生成引擎优化）诊断工具。
 
 # 必读文档
-请先并行读取以下两个文件：
+请先并行读取以下文件：
 1. 设计文档：D:/GEO2/docs/superpowers/specs/2026-07-09-geo-optimization-agent-design.md
 2. 实施计划：D:/GEO2/docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.1.md
+3. 产品路线图：D:/GEO2/docs/ROADMAP.md（了解 v0.1 在整体演进中的位置）
 
 # 你需要遵循的流程
 1. 第一步必须调用 superpowers:using-superpowers skill（这是 superpowers 插件的强制规则）
@@ -104,12 +105,13 @@
 
 新会话应该只读以下文件，其他文件按 plan 逐步创建：
 
-| 文件 | 路径 |
-|---|---|
-| 设计文档 | `D:/GEO2/docs/superpowers/specs/2026-07-09-geo-optimization-agent-design.md` |
-| 实施计划 | `D:/GEO2/docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.1.md` |
-| 全局约束 | `D:/GEO2/CLAUDE.md`（如果存在） |
-| 本文件 | `D:/GEO2/docs/HANDOFF.md` |
+| 文件 | 路径 | 用途 |
+|---|---|---|
+| 设计文档 | `D:/GEO2/docs/superpowers/specs/2026-07-09-geo-optimization-agent-design.md` | 当前版本的"做什么 + 为什么" |
+| 实施计划 | `D:/GEO2/docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.1.md` | 当前版本的"怎么做" |
+| 产品路线图 | `D:/GEO2/docs/ROADMAP.md` | 跨版本演进方向（v0.1 → v0.6） |
+| 全局约束 | `D:/GEO2/CLAUDE.md`（如果存在） | 项目级规则 |
+| 本文件 | `D:/GEO2/docs/HANDOFF.md` | 启动话术 |
 
 ## Phase 顺序速查
 
