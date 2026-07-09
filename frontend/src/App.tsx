@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import NewDiagnosis from './pages/NewDiagnosis';
 import DiagnosisStatus from './pages/DiagnosisStatus';
+import ReportView from './pages/ReportView';
 
 export default function App() {
   return (
@@ -8,6 +9,7 @@ export default function App() {
       <Routes>
         <Route path="/diagnosis/new" element={<NewDiagnosis />} />
         <Route path="/diagnosis/status/:taskId" element={<DiagnosisStatus />} />
+        <Route path="/reports/:reportId" element={<ReportView />} />
         <Route
           path="/"
           element={

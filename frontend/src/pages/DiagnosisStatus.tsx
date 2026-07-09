@@ -23,7 +23,7 @@ export default function DiagnosisStatus() {
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status === 'completed' || status === 'failed') return false;
-      return 1500;
+      return 2000;
     },
   });
 
