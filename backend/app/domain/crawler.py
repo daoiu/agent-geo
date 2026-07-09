@@ -258,12 +258,12 @@ class Crawler:
         if not result.success:
             raise CrawlError(reason=result.error or "unknown", url=url)
 
-        # Heuristic SPA detection: empty body + JS bundle
-        is_spa = (
-            "<div id=\"root\"" in result.html
-            or "<div id=\"app\"" in result.html
-            or ("<body>" in result.html and "<p>" not in result.html and "<h1>" not in result.html)
-        )
+        # Heuristic SPA detection: JS bundle is the primary SPA indicator;
+        # root/app divs and sparse body are secondary fallbacks.
+        has_js_bundle = bool(re.search(r"<script[^>]+src=", result.html, re.IGNORECASE))
+        has_spa_root = "<div id=\"root\"" in result.html or "<div id=\"app\"" in result.html
+        body_sparse = "<body>" in result.html and "<p>" not in result.html and "<h1>" not in result.html
+        is_spa = has_js_bundle or has_spa_root or body_sparse
 
         # Fetch robots.txt (don't fail audit if it errors)
         robots = await self.fetch_robots_txt(url)
