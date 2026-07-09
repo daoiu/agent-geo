@@ -243,6 +243,44 @@ class Crawler:
             has_recent_mention_in_content=recent_mention,
         )
 
+    async def audit(self, url: str) -> "SiteAudit":
+        """Composite audit: fetch + extract schema/eeat/structure/freshness.
+
+        Raises CrawlError if the page cannot be reached at all.
+        Marks result as 'partial' for SPA / near-empty pages.
+        """
+        from datetime import datetime, timezone
+
+        from app.domain.exceptions import CrawlError
+        from app.models.schemas import SiteAudit
+
+        result = await self.fetch(url)
+        if not result.success:
+            raise CrawlError(reason=result.error or "unknown", url=url)
+
+        # Heuristic SPA detection: empty body + JS bundle
+        is_spa = (
+            "<div id=\"root\"" in result.html
+            or "<div id=\"app\"" in result.html
+            or ("<body>" in result.html and "<p>" not in result.html and "<h1>" not in result.html)
+        )
+
+        # Fetch robots.txt (don't fail audit if it errors)
+        robots = await self.fetch_robots_txt(url)
+        bot_whitelist = self.check_ai_bot_whitelist(robots)
+
+        return SiteAudit(
+            url=url,
+            crawl_status="partial" if is_spa else "success",
+            crawled_at=datetime.now(timezone.utc),
+            schema=self.extract_schema_coverage(result.html),
+            eeat=self.extract_eeat_signals(result.html, url),
+            structure=self.extract_structure(result.html),
+            freshness=self.extract_freshness(result.html, None),
+            page_load_ms=result.elapsed_ms,
+            robots_txt_allows_ai_bots=bot_whitelist,
+        )
+
 
 def _extract_schema_types(data: object) -> list[str]:
     """Recursively collect @type values from a JSON-LD object/array."""

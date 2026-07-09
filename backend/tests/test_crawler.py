@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+import respx
 
 from app.core.config import Settings
 from app.domain.crawler import Crawler, CrawlerResult
@@ -198,3 +199,58 @@ Disallow: /admin
         assert result["GPTBot"] is False
         # ClaudeBot only matches * block, which allows /
         assert result["ClaudeBot"] is True
+
+
+class TestCompositeAudit:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_audit_returns_full_site_audit(self, crawler: Crawler) -> None:
+        respx.get("https://example.com").mock(
+            return_value=httpx.Response(
+                200,
+                text='<html><head>'
+                '<script type="application/ld+json">'
+                '{"@type":"Organization","name":"X","datePublished":"2026-01-01"}'
+                '</script>'
+                '</head><body>'
+                '<h1>Title</h1><h2>S</h2>'
+                '<p>Short para.</p>'
+                '<a href="/about">About</a>'
+                '</body></html>',
+                headers={"content-type": "text/html", "last-modified": "Wed, 01 Jan 2026 00:00:00 GMT"},
+            )
+        )
+
+        result = await crawler.audit("https://example.com")
+
+        assert result.crawl_status == "success"
+        assert result.schema.has_organization is True
+        assert result.eeat.has_about_page is True
+        assert result.structure.h1_count_ok is True
+        assert result.freshness.has_publish_date is True
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_audit_marks_spa_as_partial(self, crawler: Crawler) -> None:
+        """Empty <body> with a JS framework bundle is detected as SPA."""
+        respx.get("https://spa.example.com").mock(
+            return_value=httpx.Response(
+                200,
+                text='<html><head><script src="/bundle.js"></script></head>'
+                '<body><div id="root"></div></body></html>',
+            )
+        )
+
+        result = await crawler.audit("https://spa.example.com")
+
+        assert result.crawl_status == "partial"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_audit_fails_on_timeout(self, crawler: Crawler) -> None:
+        import httpx
+
+        respx.get("https://dead.example.com").mock(side_effect=httpx.TimeoutException("connection timeout"))
+
+        with pytest.raises(Exception):
+            await crawler.audit("https://dead.example.com")
