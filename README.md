@@ -120,9 +120,22 @@ docker-compose restart backend
 
 ## 文档
 
+### v0.1（当前版本）
+
 - 设计文档: [docs/superpowers/specs/2026-07-09-geo-optimization-agent-design.md](docs/superpowers/specs/2026-07-09-geo-optimization-agent-design.md)
 - 实施计划: [docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.1.md](docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.1.md)
 - 手动验证清单: [docs/MANUAL_VERIFICATION.md](docs/MANUAL_VERIFICATION.md)
+
+### 后续版本规划
+
+下列文档为 v0.2—v0.5 的蓝图，属于未来迭代范围，非 v0.1 交付物：
+
+| 版本 | 设计文档 | 实施计划 |
+|---|---|---|
+| v0.2 内容改写助手 | [spec](docs/superpowers/specs/2026-07-09-geo-agent-v0.2-design.md) | [plan](docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.2.md) |
+| v0.3 完整闭环 | [spec](docs/superpowers/specs/2026-07-10-geo-agent-v0.3-design.md) | [plan](docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.3.md) |
+| v0.4 Agent 化 | [spec](docs/superpowers/specs/2026-07-10-geo-agent-v0.4-design.md) | [plan](docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.4.md) |
+| v0.5 向量检索升级 | [spec](docs/superpowers/specs/2026-07-10-geo-agent-v0.5-design.md) | [plan](docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.5.md) |
 
 ## 合规说明
 
