@@ -24,9 +24,14 @@ async def submit_diagnosis(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
     """Create a new diagnosis task. Returns task_id (UUID)."""
+    from app.tasks.worker import schedule_diagnosis
+
     repo = ReportRepository(session)
     row = await repo.create(request)
-    # Note: actual pipeline execution is wired up in Task 8.1 (async worker)
+
+    # Fire background worker (don't await)
+    schedule_diagnosis(row.id, request)
+
     return {"task_id": row.id, "status": row.status}
 
 

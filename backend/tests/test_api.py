@@ -66,3 +66,22 @@ def test_list_reports_returns_array(client: TestClient) -> None:
     resp = client.get("/api/reports")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+def test_submit_starts_background_task(client: TestClient) -> None:
+    """Submitting kicks off async work; status changes over time."""
+    import time
+    from unittest.mock import patch, AsyncMock
+
+    # Patch the worker to avoid real network calls
+    with patch("app.tasks.worker.schedule_diagnosis") as mock_schedule:
+        resp = client.post(
+            "/api/diagnosis",
+            json={
+                "brand_name": "Async", "industry": "X",
+                "official_url": "https://example.com",
+                "target_questions": ["a", "b", "c"],
+            },
+        )
+        assert resp.status_code == 202
+        assert mock_schedule.called
