@@ -21,6 +21,7 @@ import { EmptyState, DefaultEmptyIllustration } from '@/components/ui/empty-stat
 import { StageCard, type StageStatus } from '@/components/flow/StageCard';
 import { api } from '@/api/client';
 import { formatDate, scoreColor } from '@/lib/utils';
+import { SmartQuickChat } from '@/components/dashboard/SmartQuickChat';
 import { usePipelineState } from '@/lib/usePipelineState';
 import type { PipelineNode } from '@/components/layout/PipelineRail';
 
@@ -585,6 +586,7 @@ export default function Dashboard() {
         <PipelineOverview />
       </Section>
       <KpiStrip />
+      <SmartQuickChat />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>

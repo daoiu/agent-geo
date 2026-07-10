@@ -21,8 +21,7 @@ import MonitorList from '@/pages/MonitorList';
 import MonitorDetail from '@/pages/MonitorDetail';
 import NewMonitor from '@/pages/NewMonitor';
 import NotificationSettings from '@/pages/NotificationSettings';
-import AgentSessionList from '@/pages/AgentSessionList';
-import AgentChat from '@/pages/AgentChat';
+import AgentWorkspace from '@/pages/AgentWorkspace';
 
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
@@ -160,8 +159,8 @@ function LayoutShellRouter() {
         <Route path="/monitors/new" element={<NewMonitor />} />
         <Route path="/monitors/:monitorId" element={<MonitorDetail />} />
         <Route path="/notifications" element={<NotificationSettings />} />
-        <Route path="/agent" element={<AgentSessionList />} />
-        <Route path="/agent/:sessionId" element={<AgentChat />} />
+        <Route path="/agent" element={<AgentWorkspace />} />
+        <Route path="/agent/:sessionId" element={<AgentWorkspace />} />
         {/* Real settings page — see Settings.tsx */}
         <Route path="/settings" element={<Settings />} />
         {/* Catch-all */}
