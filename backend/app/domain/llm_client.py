@@ -1,15 +1,39 @@
-"""LLM client — DeepSeek + Kimi via OpenAI-compatible API.
+"""LLM client — pluggable OpenAI-compatible providers.
 
-Each provider is selected at runtime via Settings.enabled_providers.
+Providers are **discovered automatically** from environment variables:
+
+    <NAME>_API_KEY=<key>             # required to register <name>
+    <NAME>_BASE_URL=<url>            # optional, defaults to OpenAI
+    <NAME>_MODEL=<model-name>        # optional, defaults to a sensible value
+
+Set ``LLM_PROVIDERS=foo,bar,baz`` to declare which providers are active.
+Any name with an ``<NAME>_API_KEY`` env var becomes available; ordering
+follows ``LLM_PROVIDERS`` so the first one is the agent's primary.
+
+Examples for one-off providers:
+
+    DEEPSEEK_API_KEY=sk-...
+    DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+    DEEPSEEK_MODEL=deepseek-chat
+    LLM_PROVIDERS=deepseek
+
+    MINIMAX_API_KEY=eyJ...
+    MINIMAX_BASE_URL=https://api.minimaxi.com/v1
+    MINIMAX_MODEL=MiniMax-M2.7
+    LLM_PROVIDERS=minimax          # now `chat_with_tools` uses minimax
 """
 from __future__ import annotations
 
 import asyncio
+import os
 import re
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import structlog
+from dotenv import dotenv_values
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -19,28 +43,88 @@ from app.models.schemas import MentionResult
 
 logger = structlog.get_logger()
 
+# Project root: backend/app/domain/llm_client.py → 3 parents up.
+# Matches backend/app/core/config.py so we read the same .env file.
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PROJECT_ENV_FILE = _PROJECT_ROOT / ".env"
+_DELIMITER_RE = re.compile(r"^[A-Z][A-Z0-9_]*_API_KEY$")
+_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+_DEFAULT_MODEL = "gpt-4o-mini"
+
 
 class _ProviderConfig(BaseModel):
-    """Per-provider config resolved from Settings."""
+    """Per-provider config resolved from env + Settings."""
 
     api_key: str
     base_url: str
     model: str
 
 
+def _normalize_base_url(url: str) -> str:
+    """Auto-append ``/v1`` when the user supplied a bare host.
+
+    OpenAI / DeepSeek / Kimi / MiniMax / OpenRouter all expose chat
+    completions under ``<host>/v1/chat/completions``. Forgetting the
+    trailing path produces a 404 because nginx (or the provider's edge)
+    has no route at the bare root.
+    """
+    if not url:
+        return url
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return url
+    if parsed.path in ("", "/"):
+        return url.rstrip("/") + "/v1"
+    return url
+
+
+def _load_env_values() -> dict[str, str]:
+    """Merge .env file values with the live process env. Process env wins."""
+    values: dict[str, str] = {}
+    if _PROJECT_ENV_FILE.exists():
+        values.update({k: v for k, v in dotenv_values(_PROJECT_ENV_FILE).items() if v is not None})
+    values.update({k: v for k, v in os.environ.items()})
+    return values
+
+
+def _provider_from_env(values: dict[str, str]) -> dict[str, _ProviderConfig]:
+    """Scan env for ``<X>_API_KEY`` entries and build a provider map."""
+    providers: dict[str, _ProviderConfig] = {}
+    for key, value in values.items():
+        if not _DELIMITER_RE.match(key):
+            continue
+        if not value:
+            continue
+        prefix = key[: -len("_API_KEY")]
+        name = prefix.lower()
+        base_url = _normalize_base_url(values.get(f"{prefix}_BASE_URL", "") or _DEFAULT_BASE_URL)
+        model = values.get(f"{prefix}_MODEL") or _DEFAULT_MODEL
+        providers[name] = _ProviderConfig(
+            api_key=value, base_url=base_url, model=model
+        )
+    return providers
+
+
 def _build_provider_map(settings: Settings) -> dict[str, _ProviderConfig]:
-    return {
-        "deepseek": _ProviderConfig(
+    """Resolve providers from env; back-fill any legacy Settings fields."""
+    providers = _provider_from_env(_load_env_values())
+
+    # Legacy fields kept for tests that construct Settings(deepseek_*=...).
+    # If the legacy key is non-empty and the env didn't already register it,
+    # we still want the test path to reach LLMClient.query_single(...).
+    if "deepseek" not in providers and settings.deepseek_api_key:
+        providers["deepseek"] = _ProviderConfig(
             api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
+            base_url=_normalize_base_url(settings.deepseek_base_url),
             model=settings.deepseek_model,
-        ),
-        "kimi": _ProviderConfig(
+        )
+    if "kimi" not in providers and settings.kimi_api_key:
+        providers["kimi"] = _ProviderConfig(
             api_key=settings.kimi_api_key,
-            base_url=settings.kimi_base_url,
+            base_url=_normalize_base_url(settings.kimi_base_url),
             model=settings.kimi_model,
-        ),
-    }
+        )
+    return providers
 
 
 class LLMClient:
@@ -49,6 +133,35 @@ class LLMClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._providers = _build_provider_map(settings)
+
+    def has_provider(self, name: str) -> bool:
+        return name in self._providers
+
+    @property
+    def available_providers(self) -> list[str]:
+        return list(self._providers.keys())
+
+    def primary_provider_name(self) -> str:
+        """First enabled provider that the client actually has a config for.
+
+        Falls back to the first provider with a registered config when the
+        user's ``LLM_PROVIDERS`` list references names we have no key for,
+        so the wrong-named variable in env doesn't crash the agent.
+        """
+        for name in self.settings.enabled_providers:
+            if name in self._providers:
+                return name
+        # No overlap: prefer the first provider that actually has a key
+        if self._providers:
+            return next(iter(self._providers))
+        return "deepseek"
+
+    def _make_async_client(self, cfg: _ProviderConfig) -> AsyncOpenAI:
+        return AsyncOpenAI(
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            timeout=self.settings.llm_call_timeout_s,
+        )
 
     def _make_async_client(self, cfg: _ProviderConfig) -> AsyncOpenAI:
         return AsyncOpenAI(
@@ -152,9 +265,17 @@ class LLMClient:
                 "tool_calls": list[dict] | None,  # [{id, function: {name, arguments}}, ...]
             }
         """
-        client = self._make_async_client(self._providers["deepseek"])
+        primary_name = self.primary_provider_name()
+        cfg = self._providers.get(primary_name)
+        if cfg is None:
+            raise LlmError(
+                provider=primary_name,
+                message=f"no provider config registered for '{primary_name}'",
+                retryable=False,
+            )
+        client = self._make_async_client(cfg)
         response = await client.chat.completions.create(
-            model=self.settings.deepseek_model,
+            model=cfg.model,
             messages=messages,
             tools=tools,
             tool_choice="auto",
@@ -183,9 +304,17 @@ class LLMClient:
 
         用于 v0.4 自动生成标题等轻量场景。
         """
-        client = self._make_async_client(self._providers["deepseek"])
+        primary_name = self.primary_provider_name()
+        cfg = self._providers.get(primary_name)
+        if cfg is None:
+            raise LlmError(
+                provider=primary_name,
+                message=f"no provider config registered for '{primary_name}'",
+                retryable=False,
+            )
+        client = self._make_async_client(cfg)
         response = await client.chat.completions.create(
-            model=self.settings.deepseek_model,
+            model=cfg.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
         )

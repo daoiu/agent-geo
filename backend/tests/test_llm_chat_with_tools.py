@@ -39,6 +39,26 @@ def settings() -> Settings:
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch: "pytest.MonkeyPatch") -> None:
+    """Force LLMClient to ignore the project .env so tests stay hermetic.
+
+    ``_build_provider_map`` reads ``.env`` at the project root for
+    discovery. Tests in this file exercise Settings-built deepseek
+    directly, so we replace the loader with the synthetic deepseek env.
+    """
+    from app.domain import llm_client as lc
+    monkeypatch.setattr(
+        lc,
+        "_load_env_values",
+        lambda: {
+            "DEEPSEEK_API_KEY": "sk-test",
+            "DEEPSEEK_BASE_URL": "https://api.deepseek.com/v1",
+            "DEEPSEEK_MODEL": "deepseek-chat",
+        },
+    )
+
+
 @pytest.fixture
 def llm(settings: Settings) -> LLMClient:
     return LLMClient(settings)

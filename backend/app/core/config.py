@@ -92,22 +92,28 @@ class Settings(BaseSettings):
         return [p.strip() for p in self.llm_providers.split(",") if p.strip()]
 
     @model_validator(mode="after")
-    def _require_deepseek_api_key(self) -> "Settings":
-        """Fail loudly at startup if no LLM key is configured.
+    def _require_some_api_key(self) -> "Settings":
+        """Fail loudly at startup if no LLM key is configured at all.
 
-        Prevents the silent fallback that produced the
-        ``Authorization: Bearer `` Illegal header bug. Tests can opt out
-        by exporting ``GEO_ALLOW_MISSING_LLM_KEY=1`` so they don't need
-        a real key on disk.
+        Plugins are now generic — any ``<NAME>_API_KEY`` env var works,
+        not just ``DEEPSEEK_API_KEY``. We still enforce the legacy
+        ``DEEPSEEK_*`` shortcut, and allow tests to bypass via
+        ``GEO_ALLOW_MISSING_LLM_KEY=1``.
         """
-        if self.deepseek_api_key:
-            return self
         if os.environ.get("GEO_ALLOW_MISSING_LLM_KEY") == "1":
             return self
+        import re as _re
+        if self.deepseek_api_key:
+            return self
+        # Permit a non-DEEPSEEK provider to satisfy the requirement
+        for key, val in os.environ.items():
+            if _re.match(r"^[A-Z][A-Z0-9_]*_API_KEY$", key) and val:
+                return self
         env_path = _PROJECT_ENV_FILE
         raise ValueError(
-            "DEEPSEEK_API_KEY is empty. Populate "
-            f"{env_path} (or set the DEEPSEEK_API_KEY env var). "
+            "No LLM API key configured. Populate "
+            f"{env_path} (e.g. `DEEPSEEK_API_KEY=...` or any "
+            "`<NAME>_API_KEY=...` of your OpenAI-compatible provider). "
             "For unit tests that don't exercise the LLM call, set "
             "GEO_ALLOW_MISSING_LLM_KEY=1."
         )
