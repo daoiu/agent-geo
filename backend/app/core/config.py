@@ -46,6 +46,21 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 5
     max_article_count_per_task: int = 20
 
+    # v0.3 — encryption
+    encryption_key: str = ""
+
+    # v0.3 — SMTP
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_from: str = ""
+
+    # v0.3 — publish / monitor
+    publish_timeout_s: int = 30
+    monitor_change_threshold_default: float = 0.15
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
