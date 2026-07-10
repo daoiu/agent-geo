@@ -14,6 +14,15 @@ class PublisherConfigCreate(BaseModel):
     app_password: str = Field(..., min_length=10)
 
 
+class PublisherConfigUpdate(BaseModel):
+    """All fields optional. app_password is re-encrypted if provided."""
+    name: str | None = Field(None, min_length=1, max_length=100)
+    site_url: HttpUrl | None = None
+    username: str | None = Field(None, min_length=1, max_length=100)
+    app_password: str | None = Field(None, min_length=10)
+    is_default: bool | None = None
+
+
 class PublisherConfig(BaseModel):
     """Returned by API. Never includes app_password."""
 

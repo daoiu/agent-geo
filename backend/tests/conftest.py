@@ -33,11 +33,20 @@ async def temp_db() -> AsyncGenerator[str, None]:
 
 
 @pytest_asyncio.fixture
-async def db_session(temp_db: str) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(temp_db: str, monkeypatch) -> AsyncGenerator[AsyncSession, None]:
     """Provide an initialized DB with schema and a session bound to it."""
+    from cryptography.fernet import Fernet
     from sqlalchemy import event
+    from app.core.config import get_settings
     from app.core.db import init_db
     from app.models.orm import Base
+
+    # v0.3 — encryption required by PublisherConfigORM tests.
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+    from app.domain.security import encryption
+    encryption._cipher = None
+    encryption._settings = None
 
     engine = create_async_engine(temp_db)
 
@@ -63,11 +72,13 @@ async def db_session(temp_db: str) -> AsyncGenerator[AsyncSession, None]:
 @pytest.fixture
 def client(temp_db: str, monkeypatch) -> Generator[TestClient, None, None]:
     """FastAPI TestClient with isolated test DB."""
+    from cryptography.fernet import Fernet
     from app.core.config import get_settings
     from app.main import create_app
 
-    # Override DB URL before app creates engine
+    # Override DB URL + ENCRYPTION_KEY before app creates engine / encrypts anything
     monkeypatch.setenv("DATABASE_URL", temp_db)
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()  # type: ignore[attr-defined]
 
     app = create_app()
