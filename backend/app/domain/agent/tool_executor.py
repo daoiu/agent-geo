@@ -203,8 +203,12 @@ class ToolExecutor:
         )
         tool_calls_json = json.dumps([
             {
-                "tool": "generate_article",
-                "arguments": args.model_dump(mode="json"),
+                "id": message_id,
+                "type": "function",
+                "function": {
+                    "name": "generate_article",
+                    "arguments": json.dumps(args.model_dump(mode="json"), ensure_ascii=False),
+                },
             }
         ], ensure_ascii=False)
 
