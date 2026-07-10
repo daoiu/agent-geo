@@ -60,6 +60,10 @@ async def db_session(temp_db: str, monkeypatch) -> AsyncGenerator[AsyncSession, 
 
     # v0.3 — encryption required by PublisherConfigORM tests.
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    # Settings now requires a non-empty DEEPSEEK_API_KEY unless
+    # GEO_ALLOW_MISSING_LLM_KEY=1; tests don't actually call the LLM, so
+    # any non-empty value suffices.
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key-not-used")
     get_settings.cache_clear()  # type: ignore[attr-defined]
     from app.domain.security import encryption
     encryption._cipher = None
@@ -134,6 +138,10 @@ def client(temp_db: str, monkeypatch) -> Generator[TestClient, None, None]:
     # Override DB URL + ENCRYPTION_KEY before app creates engine / encrypts anything
     monkeypatch.setenv("DATABASE_URL", temp_db)
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    # Settings now requires a non-empty DEEPSEEK_API_KEY unless
+    # GEO_ALLOW_MISSING_LLM_KEY=1; tests don't actually call the LLM, so
+    # any non-empty value suffices.
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key-not-used")
     get_settings.cache_clear()  # type: ignore[attr-defined]
 
     app = create_app()
