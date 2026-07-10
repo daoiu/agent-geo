@@ -180,9 +180,51 @@ class ToolExecutor:
 
         落"待确认"消息到 agent_messages，抛 HumanConfirmationRequired 暂停 ReAct。
         真实生成在 _execute_generate_article_confirmed 中（confirm_action 后触发）。
+
+        IMPORTANT: v0.4 agent 不会修改 v0.2 数据库（不创建 v0.2 Task / Article）。
+        这里只是落"待确认"消息到 v0.4 自己的 agent_messages 表。
         """
-        # 完整实现在 Task 2.4
-        raise NotImplementedError
+        import json
+        import uuid
+
+        from app.core.db import get_session_factory
+        from app.domain.exceptions import HumanConfirmationRequired
+        from app.models.orm_v04 import AgentMessageORM
+
+        message_id = str(uuid.uuid4())
+        content = (
+            f"准备生成文章：\n"
+            f"- 品牌：{args.brand}\n"
+            f"- 主题：{args.topic}\n"
+            f"- 关键词：{', '.join(args.keywords)}\n"
+            f"- 风格：{args.style}\n"
+            f"- 目标字数：{args.target_length}\n\n"
+            f"是否继续？"
+        )
+        tool_calls_json = json.dumps([
+            {
+                "tool": "generate_article",
+                "arguments": args.model_dump(mode="json"),
+            }
+        ], ensure_ascii=False)
+
+        async with get_session_factory()() as session:
+            msg = AgentMessageORM(
+                id=message_id,
+                session_id=self.session_id,
+                role="assistant",
+                content=content,
+                tool_calls=tool_calls_json,
+                pending_confirmation=1,
+            )
+            session.add(msg)
+            await session.commit()
+
+        raise HumanConfirmationRequired(
+            message_id=message_id,
+            tool_name="generate_article",
+            arguments=args.model_dump(mode="json"),
+        )
 
     async def _execute_generate_article_confirmed(
         self, args: GenerateArticleArgs, checkpoint_message_id: str

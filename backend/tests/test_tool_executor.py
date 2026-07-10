@@ -418,3 +418,101 @@ class TestSearchKnowledge:
         assert c["id"] == "chunk-abc"
         assert c["doc_id"] == "doc-xyz"
         assert c["chunk_index"] == 3
+
+
+class TestGenerateArticle:
+    """generate_article 是写类工具，落'待确认'消息后抛 HumanConfirmationRequired。"""
+
+    @pytest.mark.asyncio
+    async def test_raises_human_confirmation_required(
+        self, executor: ToolExecutor, db_session
+    ) -> None:
+        """调用时抛 HumanConfirmationRequired。"""
+        from app.domain.agent.tools import GenerateArticleArgs
+        from app.domain.exceptions import HumanConfirmationRequired
+        from app.models.orm_v04 import AgentSessionORM
+
+        # 先建 session 让外键生效
+        sess = AgentSessionORM(id="sess-x", title="T")
+        db_session.add(sess)
+        await db_session.commit()
+
+        ex = ToolExecutor(session_id="sess-x")
+        args = GenerateArticleArgs(
+            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            keywords=["性能", "拍照"],
+        )
+
+        with pytest.raises(HumanConfirmationRequired) as exc_info:
+            await ex._execute_generate_article(args)
+
+        assert exc_info.value.tool_name == "generate_article"
+        assert exc_info.value.arguments["brand"] == "小米"
+        assert exc_info.value.arguments["topic"] == "产品评测与体验"
+        assert exc_info.value.arguments["kb_id"] == "kb1"
+        assert exc_info.value.arguments["keywords"] == ["性能", "拍照"]
+        assert exc_info.value.message_id != ""
+
+    @pytest.mark.asyncio
+    async def test_persists_pending_confirmation_message(
+        self, executor: ToolExecutor, db_session
+    ) -> None:
+        """抛异常时已把'待确认'消息落库，pending_confirmation=1。"""
+        from sqlalchemy import select
+
+        from app.domain.agent.tools import GenerateArticleArgs
+        from app.domain.exceptions import HumanConfirmationRequired
+        from app.models.orm_v04 import AgentMessageORM, AgentSessionORM
+
+        # 先建 session
+        sess = AgentSessionORM(id="sess-1", title="T")
+        db_session.add(sess)
+        await db_session.commit()
+
+        ex = ToolExecutor(session_id="sess-1")
+        args = GenerateArticleArgs(
+            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            keywords=["性能", "拍照"],
+        )
+
+        try:
+            await ex._execute_generate_article(args)
+        except HumanConfirmationRequired as e:
+            msg_id = e.message_id
+
+            result = await db_session.execute(
+                select(AgentMessageORM).where(AgentMessageORM.id == msg_id)
+            )
+            msg = result.scalar_one_or_none()
+            # 全局 factory 已被 db_session fixture 替换，能查到这个 msg
+            assert msg is not None
+            assert msg.role == "assistant"
+            assert msg.pending_confirmation == 1
+            assert msg.session_id == "sess-1"
+            assert "小米" in msg.content
+            assert "产品评测与体验" in msg.content
+
+    @pytest.mark.asyncio
+    async def test_pending_message_includes_style_and_length(
+        self, executor: ToolExecutor, db_session
+    ) -> None:
+        """异常 payload 携带完整的 args（style、target_length）。"""
+        from app.domain.agent.tools import GenerateArticleArgs
+        from app.domain.exceptions import HumanConfirmationRequired
+        from app.models.orm_v04 import AgentSessionORM
+
+        sess = AgentSessionORM(id="sess-2", title="T")
+        db_session.add(sess)
+        await db_session.commit()
+
+        ex = ToolExecutor(session_id="sess-2")
+        args = GenerateArticleArgs(
+            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            keywords=["性能"], style="professional", target_length=2000,
+        )
+
+        with pytest.raises(HumanConfirmationRequired) as exc_info:
+            await ex._execute_generate_article(args)
+
+        assert exc_info.value.arguments["style"] == "professional"
+        assert exc_info.value.arguments["target_length"] == 2000

@@ -10,6 +10,23 @@ import pytest_asyncio
 from fastapi.testclient import TestClient  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+# Import all v0.x ORM models at module load so Base.metadata sees their tables
+# before any fixture calls Base.metadata.create_all. This is required for
+# v0.4 (agent_sessions / agent_messages) tables to exist in tests.
+from app.models import orm as _orm_v01  # noqa: F401
+try:
+    from app.models import orm_v02 as _orm_v02  # noqa: F401
+except ImportError:
+    pass
+try:
+    from app.models import orm_v03 as _orm_v03  # noqa: F401
+except ImportError:
+    pass
+try:
+    from app.models import orm_v04 as _orm_v04  # noqa: F401
+except ImportError:
+    pass
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -47,6 +64,38 @@ async def db_session(temp_db: str, monkeypatch) -> AsyncGenerator[AsyncSession, 
     from app.domain.security import encryption
     encryption._cipher = None
     encryption._settings = None
+
+    # Import all v0.x ORM models so Base.metadata sees them BEFORE create_all.
+    # Without this, v0.4 tables (agent_sessions/agent_messages) won't be created.
+    from app.models import orm as _orm_v01  # noqa: F401
+    try:
+        from app.models import orm_v02 as _orm_v02  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from app.models import orm_v03 as _orm_v03  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from app.models import orm_v04 as _orm_v04  # noqa: F401
+    except ImportError:
+        pass
+
+    # Import all v0.x ORM models so Base.metadata sees them BEFORE create_all.
+    # Without this, v0.4 tables (agent_sessions/agent_messages) won't be created.
+    from app.models import orm as _orm_v01  # noqa: F401
+    try:
+        from app.models import orm_v02 as _orm_v02  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from app.models import orm_v03 as _orm_v03  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from app.models import orm_v04 as _orm_v04  # noqa: F401
+    except ImportError:
+        pass
 
     engine = create_async_engine(temp_db)
 
