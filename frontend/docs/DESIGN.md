@@ -43,23 +43,25 @@
 
 ## 4. 公共组件清单（`src/components/ui/`）
 
-| 组件 | 主要 props | 测试文件 |
+> **v0.6 已采用 shadcn/ui (Slate base + New York style) 重写组件层。**
+> 组件文件命名小写（`button.tsx` / `card.tsx` 等），沿用 shadcn 的命名约定。
+
+| 组件 | 来源 | 主要 props |
 |---|---|---|
-| `Button` | `variant` (primary/secondary/ghost/danger/accent), `size`, `loading`, `iconLeft/Right` | `Button.test.tsx` |
-| `Input` `Select` `Textarea` | `label`, `error`, `hint`, `required`, `id` | `*.test.tsx` |
-| `Spinner` | `size`, `label` | `Spinner.test.tsx` |
-| `Card` (+ Header/Title/Description/Body/Footer) | `padded` | `Card.test.tsx` |
-| `Badge` | `tone` (neutral/primary/success/warning/danger/info), `dot` | `Badge.test.tsx` |
-| `EmptyState` (+ `DefaultEmptyIllustration`) | `title`, `description`, `icon`, `action` | `EmptyState.test.tsx` |
-| `Modal` | `open`, `onClose`, `title`, `description`, `size`, `footer` | `Modal.test.tsx` |
-| `Drawer` | `open`, `onClose`, `title`, `widthClassName` | — |
-| `ConfirmDialog` | `open`, `title`, `description`, `confirmText/cancelText`, `variant`, `onConfirm/onCancel` | — |
-| `Skeleton` (+ `SkeletonList`) | `className`, `count` | `Skeleton.test.tsx` |
-| `Tooltip` | `content`, `side`, `children` | — |
-| `Tabs` (+ `TabsList`/`TabsTrigger`/`TabsContent`) | `defaultValue`/`value`, `onValueChange` | `Tabs.test.tsx` |
-| `Accordion` | `items`, `multi` | `Accordion.test.tsx` |
-| `Stepper` | `steps`, `current`, `orientation` | `Stepper.test.tsx` |
-| `FieldWrapper` | `label`, `error`, `hint`, `id`, `required` | — |
+| `Button` | shadcn | `variant` (default / destructive / outline / secondary / ghost / link / **accent**), `size` (default / sm / lg / icon) |
+| `Card` + 5 slots | shadcn | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` |
+| `Badge` | shadcn + v0.6 扩展 | `variant` (default / secondary / destructive / outline / success / warning / info), `dot` |
+| `Input` | shadcn | 标准 input props |
+| `Textarea` | shadcn | 标准 textarea props |
+| `Label` | shadcn (Radix) | 标准 label |
+| `Skeleton` | shadcn | `className` |
+| `Tooltip` + `TooltipProvider` / `TooltipTrigger` / `TooltipContent` | shadcn (Radix) | 复合组件 |
+| `Dialog` + 6 slots | shadcn (Radix) | 受控/非受控 |
+| `Sheet` + slots (右侧抽屉) | shadcn (Radix) | `side` (top/bottom/left/right) |
+| `Tabs` + 3 slots | shadcn (Radix) | 受控/非受控 |
+| `Spinner` | 项目保留 | `size` (sm/md/lg), `label` |
+| `EmptyState` + `DefaultEmptyIllustration` | 项目保留 | `title`, `description`, `icon`, `action` |
+| `Sonner Toaster` | shadcn | App.tsx 已挂载 |
 
 ## 5. 流程可视化组件（`src/components/flow/`）
 

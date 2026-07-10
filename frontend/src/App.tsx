@@ -24,6 +24,7 @@ import AgentSessionList from '@/pages/AgentSessionList';
 import AgentChat from '@/pages/AgentChat';
 
 import { LayoutShell } from '@/components/layout/LayoutShell';
+import { Toaster } from '@/components/ui/sonner';
 import type { NavItem } from '@/components/layout/SideNav';
 import type { Crumb } from '@/components/layout/Breadcrumb';
 import { usePipelineState } from '@/lib/usePipelineState';
@@ -182,6 +183,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <LayoutShellRouter />
+        <Toaster />
       </BrowserRouter>
     </QueryClientProvider>
   );

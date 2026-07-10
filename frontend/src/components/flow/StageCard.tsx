@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Badge } from '@/components/ui/badge';
 
 export type StageStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
 
@@ -20,12 +20,12 @@ export interface StageCardProps {
   className?: string;
 }
 
-const toneByStatus: Record<StageStatus, BadgeTone> = {
-  pending: 'neutral',
+const toneByStatus: Record<StageStatus, 'outline' | 'info' | 'success' | 'destructive' | 'outline'> = {
+  pending: 'outline',
   running: 'info',
   done: 'success',
-  error: 'danger',
-  skipped: 'neutral',
+  error: 'destructive',
+  skipped: 'outline',
 };
 
 const statusLabel: Record<StageStatus, string> = {
@@ -84,7 +84,7 @@ export function StageCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-medium text-fg">{title}</h3>
-              <Badge tone={toneByStatus[status]} dot>
+              <Badge variant={toneByStatus[status]} dot>
                 {statusLabel[status]}
               </Badge>
             </div>

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export type TraceEvent =

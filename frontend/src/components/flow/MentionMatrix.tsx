@@ -1,6 +1,11 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { Tooltip } from '@/components/ui/Tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 export interface MentionCell {
   brand: string;
@@ -48,21 +53,22 @@ export function MentionMatrix({
   }, [cells]);
 
   return (
-    <div className={cn('overflow-x-auto', className)}>
-      <table
-        role="table"
-        aria-label="品牌提及矩阵（按 provider 分列）"
-        className="w-full border-collapse text-xs"
-      >
+    <TooltipProvider delayDuration={150}>
+      <div className={cn('overflow-x-auto', className)}>
+        <table
+          role="table"
+          aria-label="品牌提及矩阵（按 provider 分列）"
+          className="w-full border-collapse text-xs"
+        >
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 bg-bg-subtle px-2 py-1.5 text-left text-fg-muted">
+            <th className="sticky left-0 z-10 bg-muted px-2 py-1.5 text-left text-muted-foreground">
               品牌
             </th>
             {questions.map((q) => (
               <th
                 key={q}
-                className="bg-bg-subtle px-2 py-1.5 text-center text-fg-muted"
+                className="bg-muted px-2 py-1.5 text-center text-muted-foreground"
               >
                 {q}
               </th>
@@ -75,11 +81,11 @@ export function MentionMatrix({
               <tr key={`${brand}-${provider}`}>
                 <th
                   scope="row"
-                  className="sticky left-0 z-10 bg-bg-subtle px-2 py-1 text-left font-medium text-fg"
+                  className="sticky left-0 z-10 bg-muted px-2 py-1 text-left font-medium text-foreground"
                 >
                   <div className="flex flex-col">
-                    <span className="text-fg">{brand}</span>
-                    <span className="text-[10px] text-fg-dim">{provider}</span>
+                    <span className="text-foreground">{brand}</span>
+                    <span className="text-[10px] text-muted-foreground">{provider}</span>
                   </div>
                 </th>
                 {questions.map((q) => {
@@ -88,7 +94,7 @@ export function MentionMatrix({
                     return (
                       <td
                         key={q}
-                        className="border border-border-subtle px-1 py-1.5 text-center text-fg-dim"
+                        className="border border-border px-1 py-1.5 text-center text-muted-foreground"
                       >
                         ·
                       </td>
@@ -98,26 +104,31 @@ export function MentionMatrix({
                     ? Math.max(0.15, 1 - ((cell.position ?? 5) - 1) * 0.18)
                     : 0;
                   return (
-                    <td key={q} className="border border-border-subtle p-0.5">
-                      <Tooltip content={cellAriaLabel(cell)}>
-                        <div
-                          role="cell"
-                          aria-label={cellAriaLabel(cell)}
-                          className={cn(
-                            'flex h-7 w-full items-center justify-center rounded-sm text-[10px] font-medium',
-                            !cell.mentioned && 'bg-bg text-fg-dim',
-                            cell.mentioned && cell.sentiment === 'negative' && 'bg-danger text-white',
-                            cell.mentioned && (cell.sentiment === 'positive' || !cell.sentiment) && 'bg-primary text-primary-fg'
-                          )}
-                          style={{
-                            backgroundColor: cell.mentioned
-                              ? `rgba(13, 148, 136, ${intensity})`
-                              : undefined,
-                            color: cell.mentioned && intensity > 0.55 ? '#FFFFFF' : undefined,
-                          }}
-                        >
-                          {cell.mentioned ? (cell.position ?? '✓') : '—'}
-                        </div>
+                    <td key={q} className="border border-border p-0.5">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            role="cell"
+                            aria-label={cellAriaLabel(cell)}
+                            className={cn(
+                              'flex h-7 w-full items-center justify-center rounded-sm text-[10px] font-medium',
+                              !cell.mentioned && 'bg-muted text-muted-foreground',
+                              cell.mentioned && cell.sentiment === 'negative' && 'bg-destructive text-destructive-foreground',
+                              cell.mentioned && (cell.sentiment === 'positive' || !cell.sentiment) && 'bg-primary text-primary-foreground'
+                            )}
+                            style={{
+                              backgroundColor: cell.mentioned
+                                ? `hsl(var(--brand-primary) / ${intensity})`
+                                : undefined,
+                              color: cell.mentioned && intensity > 0.55 ? '#FFFFFF' : undefined,
+                            }}
+                          >
+                            {cell.mentioned ? (cell.position ?? '✓') : '—'}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {cellAriaLabel(cell)}
+                        </TooltipContent>
                       </Tooltip>
                     </td>
                   );
@@ -128,5 +139,6 @@ export function MentionMatrix({
         </tbody>
       </table>
     </div>
+    </TooltipProvider>
   );
 }

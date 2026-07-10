@@ -3,53 +3,103 @@
 @tailwind utilities;
 
 /* ───────────────────────────────────────────────────────────────
-   v0.6 Design Tokens — CSS variables (mirror of src/lib/tokens.ts)
+   v0.6 Design Tokens — brand colors locked here.
+   All values use HSL components (no hsl() wrapper) for opacity control.
+   UI components alias these via tailwind.config.js.
    ─────────────────────────────────────────────────────────────── */
-:root {
-  --color-primary: #0D9488;
-  --color-primary-50: #F0FDFA;
-  --color-primary-100: #CCFBF1;
-  --color-primary-fg: #FFFFFF;
-  --color-secondary: #14B8A6;
-  --color-accent: #EA580C;
-  --color-accent-fg: #FFFFFF;
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-danger: #DC2626;
-  --color-info: #0EA5E9;
-  --color-bg: #FFFFFF;
-  --color-bg-subtle: #F8FAFC;
-  --color-bg-stage: #ECFEFF;
-  --color-fg: #0F172A;
-  --color-fg-muted: #475569;
-  --color-fg-dim: #94A3B8;
-  --color-border: #E2E8F0;
-  --color-border-strong: #CBD5E1;
-  --color-ring: #0D9488;
+@layer base {
+  :root {
+    /* Brand — Teal #0D9488 */
+    --brand-primary: 174 76% 30%;
+    --brand-primary-50: 166 92% 96%;
+    --brand-primary-100: 167 85% 89%;
+    --brand-primary-fg: 0 0% 100%;
+    --brand-secondary: 173 80% 40%;
+    --brand-accent: 14 88% 47%; /* Orange #EA580C */
+    --brand-accent-fg: 0 0% 100%;
 
-  --radius-sm: 6px;
-  --radius: 10px;
-  --radius-lg: 16px;
-  --radius-pill: 9999px;
+    /* Status */
+    --brand-success: 160 84% 39%;
+    --brand-warning: 38 95% 53%;
+    --brand-danger: 0 73% 51%;
+    --brand-info: 200 95% 46%;
 
-  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.04);
-  --shadow-popover: 0 8px 32px rgba(15, 23, 42, 0.12);
-  --shadow-focus: 0 0 0 3px rgba(13, 148, 136, 0.35);
+    /* Surface */
+    --brand-bg: 0 0% 100%;
+    --brand-bg-subtle: 210 40% 98%;
+    --brand-bg-stage: 183 100% 96%;
+    --brand-fg: 218 47% 11%;
+    --brand-fg-muted: 215 16% 35%;
+    --brand-fg-dim: 216 14% 65%;
+    --brand-border: 214 20% 86%;
+    --brand-border-strong: 213 19% 75%;
+    --brand-ring: 174 76% 30%;
+
+    /* shadcn-compatible aliases — slate base + brand overrides */
+    --background: var(--brand-bg);
+    --foreground: var(--brand-fg);
+    --card: var(--brand-bg);
+    --card-foreground: var(--brand-fg);
+    --popover: var(--brand-bg);
+    --popover-foreground: var(--brand-fg);
+    --primary: var(--brand-primary);
+    --primary-foreground: var(--brand-primary-fg);
+    --secondary: var(--brand-bg-subtle);
+    --secondary-foreground: var(--brand-fg);
+    --muted: var(--brand-bg-subtle);
+    --muted-foreground: var(--brand-fg-muted);
+    --accent: var(--brand-accent);
+    --accent-foreground: var(--brand-accent-fg);
+    --destructive: var(--brand-danger);
+    --destructive-foreground: var(--brand-primary-fg);
+    --border: var(--brand-border);
+    --input: var(--brand-border);
+    --ring: var(--brand-ring);
+
+    /* Radius scale */
+    --radius: 0.625rem;
+  }
+
+  /* v0.6: dark mode interface is reserved; never published yet.
+     When added in v0.7+, switch the body root class to .dark via next-themes. */
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 6%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 6%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 173 80% 40%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 14 88% 47%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 173 80% 40%;
+  }
 }
 
-body {
-  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-  font-feature-settings: 'cv11', 'ss01', 'ss03';
-  background: var(--color-bg-subtle);
-  color: var(--color-fg);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+@layer base {
+  * {
+    @apply border-border;
+  }
 
-*:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-  border-radius: var(--radius-sm);
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    border-radius: var(--radius);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
