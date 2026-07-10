@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     # v0.3 — publish / monitor
     publish_timeout_s: int = 30
     monitor_change_threshold_default: float = 0.15
+    notify_email_default: str = ""
 
     @property
     def enabled_providers(self) -> list[str]:
