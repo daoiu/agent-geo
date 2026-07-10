@@ -32,8 +32,8 @@ dist/
 Thumbs.db
 
 # Project runtime
-backend/data/reports.db
-backend/data/reports/*.pdf
+backend/data/
+!backend/data/.gitkeep
 *.local
 
 # Environment
