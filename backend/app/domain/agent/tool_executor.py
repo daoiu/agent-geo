@@ -235,7 +235,56 @@ class ToolExecutor:
     ) -> dict:
         """写类工具确认后真正调 v0.2 ContentWriter。
 
-        仅返回预览，不落库到 v0.2 系统。
-        完整实现在 Phase 4 断点续跑（与 run_agent_turn_from_checkpoint 配合）。
+        仅返回预览（spec §4.3），不落库到 v0.2 articles / tasks 表。
+
+        流程：
+        1. search_chunks 拿相关 chunks（不写入，仅作 LLM 上下文）
+        2. ContentWriter.write_article 生成标题 + 完整正文
+        3. content_preview 截断到 300 字符（spec §4.3 '前 300 字符预览'）
+        4. 返回 preview shape：{status, title, content_preview, word_count, next_step}
         """
-        raise NotImplementedError
+        from app.core.config import get_settings
+        from app.core.db import get_session_factory
+        from app.domain.generator.content_writer import ContentWriter
+        from app.domain.knowledge.retriever import (
+            extract_search_keywords,
+            search_chunks,
+        )
+
+        settings = get_settings()
+        factory = get_session_factory()
+
+        # 1. 检索 chunks（注入 LLM prompt 作为'不得编造'的约束）
+        query = f"{args.brand} {args.topic}"
+        keywords = extract_search_keywords(query)
+        async with factory() as session:
+            chunks = await search_chunks(
+                session=session,
+                kb_id=args.kb_id,
+                keywords=keywords,
+                top_k=5,
+            )
+
+        # 2. 调 ContentWriter 生成
+        writer = ContentWriter(settings)
+        title, content = await writer.write_article(
+            brand=args.brand,
+            topic=args.topic,
+            keywords=args.keywords,
+            style=args.style,
+            target_length=args.target_length,
+            chunks=chunks,
+        )
+
+        # 3. 截断预览到 300 字符
+        content_preview = content[:300]
+        word_count = len(content)
+
+        # 4. 返回 preview shape
+        return {
+            "status": "generated",
+            "title": title,
+            "content_preview": content_preview,
+            "word_count": word_count,
+            "next_step": "如满意此预览，请到 /tasks/new 触发完整生成任务",
+        }

@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     monitor_change_threshold_default: float = 0.15
     notify_email_default: str = ""
 
+    # v0.5 — Vector retrieval
+    chroma_path: str = "./data/chroma"
+    models_cache_dir: str = "./data/models"
+    embedding_batch_size: int = 50
+    hybrid_top_k_vector: int = 20
+    hybrid_top_k_keyword: int = 20
+    hybrid_rrf_k: int = 60
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""

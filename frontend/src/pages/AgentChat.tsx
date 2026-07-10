@@ -135,13 +135,12 @@ export default function AgentChat() {
   }
 
   const approve = useMutation({
-    mutationFn: () =>
-      api.confirmAgentAction(sessionId, pending!.message_id, true),
-    onSuccess: async () => {
+    mutationFn: async () => {
       const approved = pending!;
       setPending(null);
       setToolCalls({});
       try {
+        // 直接消费 SSE 流（API 层在 approved=True 时自动从断点续跑）
         for await (const event of confirmAgentActionStream(
           sessionId,
           approved.message_id,
@@ -158,11 +157,11 @@ export default function AgentChat() {
   });
 
   const cancel = useMutation({
-    mutationFn: () =>
-      api.confirmAgentAction(sessionId, pending!.message_id, false),
-    onSuccess: () => {
+    mutationFn: async () => {
       setPending(null);
       setToolCalls({});
+      // cancel 走 JSON 路径（API 返回 cancelled 状态）
+      await api.confirmAgentAction(sessionId, pending!.message_id, false);
       qc.invalidateQueries({ queryKey: ['agent-session', sessionId] });
     },
   });

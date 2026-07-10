@@ -343,15 +343,13 @@ async def run_agent_turn_from_checkpoint(
         return
 
     args = GenerateArticleArgs.model_validate(args_dict)
-    # pending message 的 tool_call_id 之前没存；这里用 message_id 作为关联
-    pending_tool_id = f"resume-{checkpoint_message_id}"
+    # tool_call_id 必须与 assistant 消息的 tool_calls[0].id 一致（OpenAI 协议）。
+    # _execute_generate_article 写入时 id=message_id，所以这里用 checkpoint_message_id。
+    pending_tool_id = checkpoint_message_id
 
-    # 3. 标记 pending 为已处理
-    async with factory() as session:
-        repo = AgentRepository(session)
-        await repo.confirm_message(checkpoint_message_id, approved=True)
-
-    # 4. 调 _execute_generate_article_confirmed
+    # 3. 调 _execute_generate_article_confirmed
+    # 注意：confirm_message 已在 API 层 (agent_chat.confirm_action) 调用过，
+    # 这里不再重复，否则 idempotent 重复执行（不会出错，但浪费）。
     executor = ToolExecutor(session_id)
     try:
         confirmed_result = await executor._execute_generate_article_confirmed(

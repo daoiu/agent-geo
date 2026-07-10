@@ -24,3 +24,7 @@ apscheduler==3.10.4
 cryptography==43.0.1
 aiosmtplib==3.0.1
 markdown==3.7
+
+# v0.5 — Vector retrieval
+chromadb==0.5.20
+sentence-transformers==3.2.1

@@ -420,6 +420,174 @@ class TestSearchKnowledge:
         assert c["chunk_index"] == 3
 
 
+class TestGenerateArticleConfirmed:
+    """_execute_generate_article_confirmed: 真正调 ContentWriter 生成预览（不落库 v0.2）。"""
+
+    @pytest.mark.asyncio
+    async def test_returns_preview_shape(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """返回 spec §4.3 的预览 shape：status / title / content_preview / word_count / next_step。"""
+        from app.domain.agent.tools import GenerateArticleArgs
+
+        # mock search_chunks 返回 1 个 chunk
+        async def fake_search(*args, **kwargs):
+            return [
+                {
+                    "id": "c1",
+                    "doc_id": "d1",
+                    "kb_id": "kb1",
+                    "chunk_index": 0,
+                    "content": "已有内容...",
+                    "content_length": 5,
+                }
+            ]
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        # mock ContentWriter.write_article 返回标题 + 完整正文
+        class FakeContentWriter:
+            def __init__(self, settings):
+                pass
+
+            async def write_article(self, **kwargs):
+                return ("小米产品评测", "# 小米产品评测\n\n这是完整的 1500 字正文。")
+
+        monkeypatch.setattr(
+            "app.domain.generator.content_writer.ContentWriter", FakeContentWriter
+        )
+
+        args = GenerateArticleArgs(
+            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            keywords=["性能", "拍照"], target_length=1500,
+        )
+
+        result = await executor._execute_generate_article_confirmed(
+            args, checkpoint_message_id="msg-pending-123"
+        )
+
+        assert result["status"] == "generated"
+        assert result["title"] == "小米产品评测"
+        assert result["content_preview"]  # 非空
+        assert len(result["content_preview"]) <= 300  # 截断到 300
+        assert result["word_count"] > 0
+        assert "/tasks/new" in result["next_step"]
+
+    @pytest.mark.asyncio
+    async def test_does_not_write_to_v02_db(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch, db_session
+    ) -> None:
+        """关键约束：confirmed 路径不写 v0.2 articles / tasks 表。"""
+        from app.domain.agent.tools import GenerateArticleArgs
+
+        async def fake_search(*args, **kwargs):
+            return []
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        class FakeContentWriter:
+            def __init__(self, settings):
+                pass
+
+            async def write_article(self, **kwargs):
+                return ("标题", "内容")
+
+        monkeypatch.setattr(
+            "app.domain.generator.content_writer.ContentWriter", FakeContentWriter
+        )
+
+        args = GenerateArticleArgs(
+            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            keywords=["性能"], target_length=1500,
+        )
+
+        await executor._execute_generate_article_confirmed(args, "msg-id")
+
+        # v0.2 tasks / articles 不应该有任何新行（mock 没动 DB）
+        from sqlalchemy import select
+
+        from app.models.orm_v02 import ArticleORM, TaskORM
+
+        task_rows = (await db_session.execute(select(TaskORM))).scalars().all()
+        article_rows = (await db_session.execute(select(ArticleORM))).scalars().all()
+        assert len(task_rows) == 0
+        assert len(article_rows) == 0
+
+    @pytest.mark.asyncio
+    async def test_content_preview_truncated_to_300_chars(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """content_preview 截断到 300 字符（spec §4.3 '前 300 字符预览'）。"""
+        from app.domain.agent.tools import GenerateArticleArgs
+
+        async def fake_search(*args, **kwargs):
+            return []
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        long_content = "x" * 1000  # 1000 字符
+
+        class FakeContentWriter:
+            def __init__(self, settings):
+                pass
+
+            async def write_article(self, **kwargs):
+                return ("长文标题", long_content)
+
+        monkeypatch.setattr(
+            "app.domain.generator.content_writer.ContentWriter", FakeContentWriter
+        )
+
+        args = GenerateArticleArgs(
+            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            keywords=["性能"], target_length=1500,
+        )
+
+        result = await executor._execute_generate_article_confirmed(args, "msg-id")
+        assert len(result["content_preview"]) == 300
+
+    @pytest.mark.asyncio
+    async def test_handles_empty_kb(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """KB 为空时（0 chunks）也能生成（ContentWriter 会用空 chunks 调）。"""
+        from app.domain.agent.tools import GenerateArticleArgs
+
+        async def fake_search(*args, **kwargs):
+            return []
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        class FakeContentWriter:
+            def __init__(self, settings):
+                pass
+
+            async def write_article(self, **kwargs):
+                # chunks 为空列表也能调用（v0.2 ContentWriter 支持）
+                return ("标题", "无 KB 内容的文章")
+
+        monkeypatch.setattr(
+            "app.domain.generator.content_writer.ContentWriter", FakeContentWriter
+        )
+
+        args = GenerateArticleArgs(
+            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            keywords=["性能"], target_length=1500,
+        )
+
+        result = await executor._execute_generate_article_confirmed(args, "msg-id")
+        assert result["status"] == "generated"
+        assert result["title"] == "标题"
+
+
 class TestGenerateArticle:
     """generate_article 是写类工具，落'待确认'消息后抛 HumanConfirmationRequired。"""
 
