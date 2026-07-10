@@ -29,3 +29,17 @@ class ScoreError(DomainError):
 
 class RenderError(DomainError):
     """PDF/HTML rendering failed."""
+
+
+class KnowledgeError(DomainError):
+    """Knowledge base errors."""
+
+
+class DocumentParseError(KnowledgeError):
+    """A document could not be parsed to text."""
+
+    def __init__(self, doc_id: str, file_path: str, reason: str) -> None:
+        self.doc_id = doc_id
+        self.file_path = file_path
+        self.reason = reason
+        super().__init__(f"Document {doc_id} parse failed: {reason}")
