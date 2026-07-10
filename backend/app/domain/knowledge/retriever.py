@@ -1,10 +1,22 @@
 """Higher-level retrieval helpers (v0.2 uses keyword search from repo)."""
 from __future__ import annotations
 
+import jieba
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orm_v02 import KnowledgeChunkORM
 from app.repositories.knowledge_repo import KnowledgeRepository
+
+
+def extract_search_keywords(text: str) -> list[str]:
+    """Segment Chinese/English text and return searchable keywords.
+
+    Single source of truth: drops single-character tokens (poor search
+    signal) and whitespace-only segments. Both api/knowledge.py and
+    tasks/task_worker.py call this.
+    """
+    return [w for w in jieba.cut(text) if len(w.strip()) > 1]
 
 
 async def search_chunks(

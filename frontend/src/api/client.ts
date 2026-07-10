@@ -128,9 +128,10 @@ export const api = {
     return request(`/reviews/${articleId}`);
   },
   approveArticle(articleId: string, note?: string): Promise<Article> {
+    // Omit `note` entirely when undefined so backend sees `None`, not `''`
     return request(`/reviews/${articleId}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ note: note || '' }),
+      body: JSON.stringify(note !== undefined ? { note } : {}),
     });
   },
   rejectArticle(articleId: string, note: string): Promise<Article> {

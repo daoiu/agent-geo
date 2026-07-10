@@ -4,13 +4,14 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-import jieba
+import jieba  # noqa: F401  # re-exported via retriever.extract_search_keywords
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.diagnosis import get_session
 from app.core.config import get_settings
+from app.domain.knowledge.retriever import extract_search_keywords
 from app.models.knowledge import (
     KnowledgeBase,
     KnowledgeBaseCreate,
@@ -119,8 +120,8 @@ async def search_chunks(
     if kb is None:
         raise HTTPException(status_code=404, detail="knowledge base not found")
 
-    # jieba: extract keywords (length > 1 to skip single chars)
-    keywords = [w for w in jieba.cut(q) if len(w.strip()) > 1]
+    # jieba: extract keywords via shared helper (same logic as task worker)
+    keywords = extract_search_keywords(q)
     chunks = await repo.search_chunks_by_keyword(
         kb_id=kb_id, keywords=keywords, top_k=limit
     )
@@ -170,8 +171,9 @@ async def upload_document(
             if written > max_bytes:
                 out.close()
                 file_path.unlink(missing_ok=True)
+                # Spec §6.1 + 验收清单场景 3 要求 422
                 raise HTTPException(
-                    status_code=413,
+                    status_code=422,
                     detail=f"file too large; max {settings.max_upload_size_mb}MB",
                 )
             out.write(chunk)

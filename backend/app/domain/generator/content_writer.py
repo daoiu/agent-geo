@@ -4,10 +4,23 @@ from __future__ import annotations
 import asyncio
 import re
 
-from openai import AsyncOpenAI
+import httpx
+from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 from app.core.config import Settings
 from app.domain.generator.prompt_builder import build as build_prompt
+
+
+# Exceptions that should be silently absorbed as "LLM failure" (caller
+# marks article as errored). Programming errors propagate so we don't
+# hide real bugs.
+_LLM_TRANSIENT_EXCEPTIONS: tuple[type[Exception], ...] = (
+    asyncio.TimeoutError,
+    APITimeoutError,
+    RateLimitError,
+    APIError,
+    httpx.HTTPError,
+)
 
 
 class ContentWriter:
@@ -40,8 +53,10 @@ class ContentWriter:
     ) -> tuple[str, str]:
         """Generate one article. Returns (title, content).
 
-        On LLM failure, returns (fallback_title, "") — caller should
-        mark the article as errored.
+        On LLM transient failure (timeout, rate-limit, 5xx), returns
+        (fallback_title, "") — caller should mark the article as errored.
+        Programming errors (KeyError, TypeError, ...) propagate so they
+        are not silently swallowed.
         """
         prompt = build_prompt(
             brand=brand,
@@ -53,10 +68,11 @@ class ContentWriter:
         )
 
         try:
+            # No timeout on the client: asyncio.wait_for wraps the whole call
+            # with the project's LLM timeout (v0.1 plan: 30s for LLM call).
             client = AsyncOpenAI(
                 api_key=self.settings.deepseek_api_key,
                 base_url=self.settings.deepseek_base_url,
-                timeout=self.settings.llm_call_timeout_s,
             )
             response = await asyncio.wait_for(
                 client.chat.completions.create(
@@ -69,5 +85,5 @@ class ContentWriter:
             content = response.choices[0].message.content or ""
             title = self._extract_title(content)
             return title, content
-        except Exception:  # noqa: BLE001
+        except _LLM_TRANSIENT_EXCEPTIONS:
             return self._extract_title(""), ""

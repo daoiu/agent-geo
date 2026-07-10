@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.diagnosis import get_session
 from app.models.orm_v02 import TaskORM
-from app.models.task import Article, Task, TaskCreate
+from app.models.task import Article, Task, TaskCreate, TaskWithArticles
 from app.repositories.knowledge_repo import KnowledgeRepository
 from app.repositories.task_repo import TaskRepository
 from app.tasks.task_worker import schedule_task
@@ -70,41 +70,21 @@ async def list_tasks(session: AsyncSession = Depends(get_session)) -> list[Task]
     return [_task_to_pydantic(t) for t in tasks]
 
 
-@router.get("/{task_id}")
+@router.get("/{task_id}", response_model=TaskWithArticles)
 async def get_task(
     task_id: str,
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> TaskWithArticles:
     """Task details + list of articles."""
     repo = TaskRepository(session)
     task = await repo.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     articles = await repo.list_articles(task_id)
-    parsed_articles = []
-    for a in articles:
-        cited = json.loads(a.cited_chunks or "[]")
-        parsed_articles.append(
-            Article(
-                id=a.id,
-                task_id=a.task_id,
-                title=a.title,
-                content=a.content,
-                content_length=a.content_length,
-                review_status=a.review_status,  # type: ignore[arg-type]
-                review_note=a.review_note,
-                reviewed_at=a.reviewed_at,
-                cited_chunks=cited,
-                llm_provider=a.llm_provider,
-                error_message=a.error_message,
-                created_at=a.created_at,
-                updated_at=a.updated_at,
-            )
-        )
-    return {
+    return TaskWithArticles(
         **_task_to_pydantic(task).model_dump(),
-        "articles": parsed_articles,
-    }
+        articles=[Article.from_orm_obj(a) for a in articles],
+    )
 
 
 @router.delete("/{task_id}", status_code=204, response_class=Response)
@@ -151,4 +131,4 @@ async def list_task_articles(
     session: AsyncSession = Depends(get_session),
 ) -> list[Article]:
     repo = TaskRepository(session)
-    return await repo.list_articles(task_id)
+    return [Article.from_orm_obj(a) for a in await repo.list_articles(task_id)]

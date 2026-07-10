@@ -5,14 +5,13 @@ import asyncio
 import json
 from typing import Any
 
-import jieba
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session_factory
 from app.domain.generator.content_writer import ContentWriter
-from app.domain.knowledge.retriever import search_chunks
+from app.domain.knowledge.retriever import extract_search_keywords, search_chunks
 from app.repositories.task_repo import TaskRepository
 
 logger = structlog.get_logger()
@@ -32,10 +31,10 @@ async def _process_one(
 ) -> None:
     """Generate one article. On failure, mark article with error and continue."""
     try:
-        # Keyword retrieval using jieba
+        # Keyword retrieval using shared jieba helper
         keywords_list = json.loads(task.keywords or "[]")
         query = task.topic + " " + " ".join(keywords_list)
-        keywords = [w for w in jieba.cut(query) if len(w.strip()) > 1]
+        keywords = extract_search_keywords(query)
         chunks = await search_chunks(
             session=task_repo.session,
             kb_id=task.kb_id,

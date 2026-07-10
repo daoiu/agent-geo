@@ -1,6 +1,7 @@
 """Pydantic models for tasks, articles, reviews."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import Enum
 
@@ -75,8 +76,37 @@ class Article(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @classmethod
+    def from_orm_obj(cls, article) -> "Article":
+        """Convert ORM ArticleORM → Pydantic Article (parses cited_chunks JSON).
+
+        Single source of truth used by both tasks.py and reviews.py.
+        """
+        cited = json.loads(article.cited_chunks or "[]")
+        return cls(
+            id=article.id,
+            task_id=article.task_id,
+            title=article.title,
+            content=article.content,
+            content_length=article.content_length,
+            review_status=article.review_status,  # type: ignore[arg-type]
+            review_note=article.review_note,
+            reviewed_at=article.reviewed_at,
+            cited_chunks=cited,
+            llm_provider=article.llm_provider,
+            error_message=article.error_message,
+            created_at=article.created_at,
+            updated_at=article.updated_at,
+        )
+
 
 class ReviewAction(BaseModel):
     """Action body for approve / reject endpoints."""
 
     note: str | None = Field(None, max_length=2000)
+
+
+class TaskWithArticles(Task):
+    """Task detail response shape: Task fields + nested articles list."""
+
+    articles: list[Article] = Field(default_factory=list)

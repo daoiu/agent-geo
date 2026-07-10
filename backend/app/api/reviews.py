@@ -1,8 +1,6 @@
 """Reviews API: list review queue, approve / reject / revise articles."""
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,26 +11,6 @@ from app.repositories.task_repo import TaskRepository
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 
-def _article_to_pydantic(article) -> Article:
-    """Convert ORM article → Pydantic Article (parses cited_chunks JSON)."""
-    cited = json.loads(article.cited_chunks or "[]")
-    return Article(
-        id=article.id,
-        task_id=article.task_id,
-        title=article.title,
-        content=article.content,
-        content_length=article.content_length,
-        review_status=article.review_status,  # type: ignore[arg-type]
-        review_note=article.review_note,
-        reviewed_at=article.reviewed_at,
-        cited_chunks=cited,
-        llm_provider=article.llm_provider,
-        error_message=article.error_message,
-        created_at=article.created_at,
-        updated_at=article.updated_at,
-    )
-
-
 @router.get("", response_model=list[Article])
 async def list_reviews(
     status: str = "pending",
@@ -41,7 +19,7 @@ async def list_reviews(
 ) -> list[Article]:
     repo = TaskRepository(session)
     rows = await repo.list_articles_by_status(status, task_id=task_id)
-    return [_article_to_pydantic(a) for a in rows]
+    return [Article.from_orm_obj(a) for a in rows]
 
 
 @router.get("/{article_id}", response_model=Article)
@@ -53,7 +31,7 @@ async def get_article(
     article = await repo.get_article(article_id)
     if article is None:
         raise HTTPException(status_code=404, detail="article not found")
-    return _article_to_pydantic(article)
+    return Article.from_orm_obj(article)
 
 
 @router.post("/{article_id}/approve", response_model=Article)
@@ -75,7 +53,7 @@ async def approve_article(
         article_id, status="approved", note=body.note
     )
     article = await repo.get_article(article_id)
-    return _article_to_pydantic(article)
+    return Article.from_orm_obj(article)
 
 
 @router.post("/{article_id}/reject", response_model=Article)
@@ -102,7 +80,7 @@ async def reject_article(
         article_id, status="rejected", note=body.note
     )
     article = await repo.get_article(article_id)
-    return _article_to_pydantic(article)
+    return Article.from_orm_obj(article)
 
 
 @router.post("/{article_id}/revise", response_model=Article)
@@ -125,4 +103,4 @@ async def request_revision(
         article_id, status="revise_requested", note=body.note
     )
     article = await repo.get_article(article_id)
-    return _article_to_pydantic(article)
+    return Article.from_orm_obj(article)

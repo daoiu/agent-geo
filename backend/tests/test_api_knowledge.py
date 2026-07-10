@@ -84,6 +84,29 @@ def test_delete_kb(client: TestClient) -> None:
     assert get_resp.status_code == 404
 
 
+def test_upload_rejects_oversized(
+    client: TestClient, tmp_path, monkeypatch
+) -> None:
+    """Spec §6.1 + 验收清单场景 3：文件过大返回 422。"""
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("MAX_UPLOAD_SIZE_MB", "1")  # 1MB 上限
+
+    create = client.post("/api/knowledge", json={"name": "SizeKB"})
+    kb_id = create.json()["id"]
+
+    big = tmp_path / "big.txt"
+    big.write_bytes(b"x" * (2 * 1024 * 1024))  # 2MB
+
+    with open(big, "rb") as f:
+        resp = client.post(
+            f"/api/knowledge/{kb_id}/documents",
+            files={"file": ("big.txt", f, "text/plain")},
+        )
+    assert resp.status_code == 422
+
+
 def test_upload_document(client: TestClient) -> None:
     from tests.conftest import PROJECT_ROOT
     fixture = PROJECT_ROOT / "tests" / "fixtures" / "sample.txt"
