@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     llm_call_timeout_s: int = 30
     crawl_timeout_s: int = 10
 
+    # Knowledge base / v0.2
+    max_upload_size_mb: int = 50
+    default_target_length: int = 1500
+    chunk_min_length: int = 50
+    chunk_max_length: int = 500
+    retrieval_top_k: int = 5
+    max_article_count_per_task: int = 20
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
