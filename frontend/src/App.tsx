@@ -12,6 +12,11 @@ import NewTask from '@/pages/NewTask';
 import TaskDetail from '@/pages/TaskDetail';
 import ReviewQueue from '@/pages/ReviewQueue';
 import ReviewArticle from '@/pages/ReviewArticle';
+import PublisherConfigPage from '@/pages/PublisherConfig';
+import PublishList from '@/pages/PublishList';
+import MonitorList from '@/pages/MonitorList';
+import MonitorDetail from '@/pages/MonitorDetail';
+import NotificationSettings from '@/pages/NotificationSettings';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +47,15 @@ function Header() {
           <Link to="/reviews" className="text-gray-600 hover:text-gray-900">
             审核
           </Link>
+          <Link to="/publishers" className="text-gray-600 hover:text-gray-900">
+            发布
+          </Link>
+          <Link to="/monitors" className="text-gray-600 hover:text-gray-900">
+            监测
+          </Link>
+          <Link to="/notifications" className="text-gray-600 hover:text-gray-900">
+            通知
+          </Link>
           <Link
             to="/new"
             className="px-3 py-1 bg-blue-600 text-white rounded-md"
@@ -71,6 +85,11 @@ export default function App() {
           <Route path="/tasks/:taskId" element={<TaskDetail />} />
           <Route path="/reviews" element={<ReviewQueue />} />
           <Route path="/reviews/:articleId" element={<ReviewArticle />} />
+          <Route path="/publishers" element={<PublisherConfigPage />} />
+          <Route path="/publishes" element={<PublishList />} />
+          <Route path="/monitors" element={<MonitorList />} />
+          <Route path="/monitors/:monitorId" element={<MonitorDetail />} />
+          <Route path="/notifications" element={<NotificationSettings />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
