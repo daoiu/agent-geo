@@ -56,9 +56,84 @@ class ToolExecutor:
         raise ValueError(f"Unknown tool: {tool_name}")
 
     async def _execute_diagnose_brand(self, args: DiagnoseBrandArgs) -> dict:
-        """诊断品牌。包装 v0.1 DiagnosisService。"""
-        # 完整实现在 Task 2.2
-        raise NotImplementedError
+        """诊断品牌。包装 v0.1 DiagnosisService。
+
+        策略（用户决策）：走"run 后 get_report"路径，不改 v0.1。
+        1. ReportRepository.create 创建 pending ReportORM，得到 task_id
+        2. DiagnosisService.run(task_id, req) — v0.1 自己完成爬虫/LLM/打分/写库
+        3. ReportRepository.get_by_task_id(task_id) 拉回 ReportORM
+        4. 解析 row.report_json 为 Report，提取简化版字段返回
+
+        返回的简化版避免 LLM 上下文爆炸。
+        """
+        import json
+
+        from app.core.config import get_settings
+        from app.core.db import get_session_factory
+        from app.domain.crawler import Crawler
+        from app.domain.llm_client import LLMClient
+        from app.models.schemas import DiagnosisRequest, Report
+        from app.repositories.report_repo import ReportRepository
+        from app.services.diagnosis_service import DiagnosisService
+
+        settings = get_settings()
+        factory = get_session_factory()
+
+        # 1. 创建 Report 记录（v0.1 期望先存在）
+        async with factory() as session:
+            repo = ReportRepository(session)
+            req = DiagnosisRequest(
+                brand_name=args.brand_name,
+                industry=args.industry,
+                official_url=str(args.official_url),
+                target_questions=[
+                    f"{args.brand_name} 怎么样",
+                    f"{args.brand_name} 值得购买吗",
+                    f"{args.brand_name} 的主要特点",
+                ],
+            )
+            row = await repo.create(req)
+            task_id = row.id
+            await session.commit()
+
+        # 2. 调 v0.1 DiagnosisService.run
+        async with factory() as session:
+            repo = ReportRepository(session)
+            crawler = Crawler(settings)
+            llm = LLMClient(settings)
+            try:
+                svc = DiagnosisService(
+                    repo=repo, crawler=crawler, llm=llm, settings=settings
+                )
+                await svc.run(task_id, req)
+            finally:
+                await crawler.close()
+
+        # 3. 拉回 Report
+        async with factory() as session:
+            repo = ReportRepository(session)
+            row = await repo.get_by_task_id(task_id)
+
+        if row is None or row.report_json is None:
+            raise RuntimeError(f"DiagnosisService did not produce report for {task_id}")
+
+        # 4. 解析并提取简化字段
+        report = Report.model_validate(json.loads(row.report_json))
+        score = report.score_card
+        return {
+            "report_id": task_id,
+            "overall_score": score.overall,
+            "mention_rate": score.mention_rate,
+            "dimensions": {
+                "authority": score.authority.score,
+                "relevance": score.relevance.score,
+                "structure": score.structure.score,
+                "freshness": score.freshness.score,
+                "verifiability": score.verifiability.score,
+            },
+            "suggestions_count": len(report.suggestions),
+            "top_suggestion": report.suggestions[0].title if report.suggestions else None,
+        }
 
     async def _execute_search_knowledge(self, args: SearchKnowledgeArgs) -> dict:
         """搜索知识库。包装 v0.2 KnowledgeRepository。"""
