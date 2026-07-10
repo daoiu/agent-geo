@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import NewDiagnosis from '@/pages/NewDiagnosis';
+import Dashboard from '@/pages/Dashboard';
 import Settings from '@/pages/Settings';
 import DiagnosisStatus from '@/pages/DiagnosisStatus';
 import ReportView from '@/pages/ReportView';
@@ -61,6 +62,11 @@ function crumbsFor(path: string): Crumb[] {
     return [
       { label: '诊断', to: '/new' },
       { label: '诊断进度', description: '正在抓取与多 LLM 询问；可在这里看到实时信号。' },
+    ];
+  if (path === '/reports')
+    return [
+      { label: '诊断', to: '/new' },
+      { label: '历史报告', description: '所有诊断报告 · 按时间倒序。' },
     ];
   if (path.startsWith('/reports/'))
     return [
@@ -136,9 +142,10 @@ function LayoutShellRouter() {
         onToggleDark={toggleTheme}
       >
       <Routes>
-        <Route path="/" element={<ReportList />} />
+        <Route path="/" element={<Dashboard />} />
         <Route path="/new" element={<NewDiagnosis />} />
         <Route path="/diagnosis/:taskId/status" element={<DiagnosisStatus />} />
+        <Route path="/reports" element={<ReportList />} />
         <Route path="/reports/:reportId" element={<ReportView />} />
         <Route path="/knowledge" element={<KnowledgeList />} />
         <Route path="/knowledge/:kbId" element={<KnowledgeDetail />} />

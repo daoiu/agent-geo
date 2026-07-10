@@ -13,7 +13,7 @@ export const navItems: NavItem[] = [
     to: '/new',
     children: [
       { key: 'diag-new', label: '新建诊断', to: '/new' },
-      { key: 'diag-history', label: '历史报告', to: '/' },
+      { key: 'diag-history', label: '历史报告', to: '/reports' },
       { key: 'diag-agent', label: '诊断智能体', to: '/agent/diagnose' },
     ],
   },
