@@ -5,7 +5,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
+from app.api import agent_chat, agent_sessions, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
 from app.core.config import get_settings
 from app.core.db import dispose_db, init_db
 
@@ -54,6 +54,8 @@ def create_app() -> FastAPI:
     app.include_router(publishers.jobs_router, prefix="/api")
     app.include_router(notifications.router, prefix="/api")
     app.include_router(monitors.router, prefix="/api")
+    app.include_router(agent_sessions.router, prefix="/api")
+    app.include_router(agent_chat.router, prefix="/api")
 
     @app.get("/health")
     def health() -> dict[str, str]:
