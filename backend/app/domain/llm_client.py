@@ -139,6 +139,45 @@ class LLMClient:
                 )
         return await asyncio.gather(*tasks)
 
+    async def chat_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> dict:
+        """Call LLM with tool use (OpenAI-compatible Function Calling).
+
+        Returns:
+            {
+                "content": str | None,         # assistant 的文字内容
+                "tool_calls": list[dict] | None,  # [{id, function: {name, arguments}}, ...]
+            }
+        """
+        client = self._make_async_client(self._providers["deepseek"])
+        response = await client.chat.completions.create(
+            model=self.settings.deepseek_model,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0.7,
+        )
+        message = response.choices[0].message
+        tool_calls: list[dict] | None = None
+        if message.tool_calls:
+            tool_calls = [
+                {
+                    "id": tc.id,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in message.tool_calls
+            ]
+        return {
+            "content": message.content,
+            "tool_calls": tool_calls,
+        }
+
     @staticmethod
     def _build_prompt(question: str, brand: str, industry: str) -> str:
         return (
