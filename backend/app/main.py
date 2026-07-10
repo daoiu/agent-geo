@@ -2,12 +2,15 @@
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import agent_chat, agent_sessions, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
 from app.core.config import get_settings
 from app.core.db import dispose_db, init_db
+
+logger = structlog.get_logger()
 
 
 @asynccontextmanager
@@ -22,6 +25,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     start_scheduler()
     await load_all_monitor_tasks()
+    # v0.5 — lazy reindex of existing chunks into ChromaDB
+    from app.services.reindex import ReindexService
+    reindex_stats = await ReindexService().reindex_all()
+    logger.info("v0.5_reindex_done", **reindex_stats)
     yield
     shutdown_scheduler()
     await dispose_db()
