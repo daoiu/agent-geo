@@ -1,163 +1,19 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, MessageSquarePlus, Trash2 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowUp } from 'lucide-react';
 
 import { api } from '@/api/client';
 import { useAgentSession } from '@/hooks/useAgentSession';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ToolCallCard } from '@/components/ToolCallCard';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import type { AgentSession } from '@/types/v0.4';
 
 // ---------------------------------------------------------------------------
-// Session grouping
-// ---------------------------------------------------------------------------
-
-type Bucket = '7天' | '30天' | string; // last is the YYYY-MM month label
-
-function bucketFor(iso: string): Bucket {
-  const d = new Date(iso).getTime();
-  const ageDays = (Date.now() - d) / 86_400_000;
-  if (ageDays <= 7) return '7天';
-  if (ageDays <= 30) return '30天';
-  const date = new Date(iso);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-interface SessionGroup {
-  label: string;
-  items: AgentSession[];
-}
-
-function groupSessions(sessions: AgentSession[]): SessionGroup[] {
-  const order: string[] = [];
-  const map = new Map<string, AgentSession[]>();
-  for (const s of sessions) {
-    const b = bucketFor(s.updated_at);
-    if (!map.has(b)) {
-      map.set(b, []);
-      order.push(b);
-    }
-    map.get(b)!.push(s);
-  }
-  // newest first within each group
-  for (const arr of map.values()) {
-    arr.sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1));
-  }
-  return order.map((label) => ({ label, items: map.get(label) ?? [] }));
-}
-
-// ---------------------------------------------------------------------------
-// Left sidebar: session list (280px)
-// ---------------------------------------------------------------------------
-
-function SessionSidebar({
-  onNewChat,
-  onDeleteChat,
-  currentId,
-}: {
-  onNewChat: () => void;
-  onDeleteChat: (id: string) => void;
-  currentId: string | undefined;
-}) {
-  const navigate = useNavigate();
-  const { data: sessions, isLoading } = useQuery({
-    queryKey: ['agent-sessions'],
-    queryFn: () => api.listAgentSessions(),
-  });
-  const groups = useMemo(() => (sessions ? groupSessions(sessions) : []), [sessions]);
-
-  return (
-    <aside
-      aria-label="会话历史"
-      className="hidden h-full w-72 shrink-0 flex-col border-r border-border bg-bg-stage md:flex"
-    >
-      <div className="flex items-center justify-between px-4 py-3">
-        <Link to="/" className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold">
-            G
-          </span>
-          <span className="text-sm font-semibold text-foreground">GEO 助手</span>
-        </Link>
-      </div>
-      <div className="px-3">
-        <Button
-          type="button"
-          variant="default"
-          className="w-full justify-center"
-          onClick={onNewChat}
-        >
-          <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
-          开启新对话
-        </Button>
-      </div>
-      <div className="mt-4 flex-1 overflow-y-auto px-2">
-        {isLoading ? (
-          <div className="space-y-2 px-2 py-3">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-9 w-full" />
-            ))}
-          </div>
-        ) : groups.length === 0 ? (
-          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-            还没有对话。下方输入框开始第一条
-          </p>
-        ) : (
-          groups.map((g) => (
-            <div key={g.label} className="mb-3">
-              <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                {g.label}内
-              </div>
-              <ul>
-                {g.items.map((s) => {
-                  const active = s.id === currentId;
-                  return (
-                    <li key={s.id} className="group relative">
-                      <Link
-                        to={`/agent/${s.id}`}
-                        className={cn(
-                          'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-                          active
-                            ? 'bg-primary/10 font-medium text-primary'
-                            : 'text-foreground hover:bg-muted'
-                        )}
-                      >
-                        <span className="truncate">{s.title}</span>
-                      </Link>
-                      <button
-                        type="button"
-                        aria-label={`删除对话 ${s.title}`}
-                        onClick={async (e) => {
-                          e.preventDefault();
-                          if (!window.confirm(`删除对话「${s.title}」？`)) return;
-                          await onDeleteChat(s.id);
-                          if (active) navigate('/agent');
-                        }}
-                        className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive group-hover:block"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))
-        )}
-      </div>
-      <div className="border-t px-3 py-3 text-xs text-muted-foreground">
-        {/* footer slot left intentionally empty — no fake email placeholder */}
-      </div>
-    </aside>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Right pane: chat workspace
+// Composer (textarea fills the box; send button is an absolute pill in the
+// bottom-right corner — when the input has content the *whole* composer
+// lights up in primary, not just a half-height strip).
 // ---------------------------------------------------------------------------
 
 function Composer({
@@ -182,15 +38,22 @@ function Composer({
   }, [input]);
 
   function submit() {
-    if (!input.trim() || loading || disabled) return;
+    if (!active) return;
     onSend();
   }
+
+  const hasText = input.trim().length > 0;
+  const active = hasText && !loading && !disabled;
+  const dimmed = (loading || disabled) && !hasText;
 
   return (
     <div
       className={cn(
-        'rounded-2xl border border-border bg-card shadow-sm',
-        (loading || disabled) && 'opacity-70'
+        'relative rounded-xl border bg-card shadow-sm transition-colors',
+        active
+          ? 'border-primary bg-primary/5'
+          : 'border-border bg-card',
+        dimmed && 'opacity-60',
       )}
     >
       <textarea
@@ -206,28 +69,30 @@ function Composer({
         rows={1}
         placeholder="给 GEO 助手发送消息（Enter 发送，Shift+Enter 换行）"
         aria-label="消息输入"
-        disabled={Boolean(loading || disabled)}
-        className="block w-full resize-none rounded-2xl bg-transparent px-4 py-3 text-sm leading-6 placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+        disabled={Boolean(disabled) && false /* always typeable; send has its own guard */}
+        className="block w-full resize-none rounded-xl bg-transparent px-4 pb-12 pt-3 text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
       />
-      <div className="flex items-center justify-end gap-2 px-3 pb-2">
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!input.trim() || loading || Boolean(disabled)}
-          aria-label="发送"
-          className={cn(
-            'inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors',
-            input.trim() && !loading && !disabled
-              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-              : 'bg-muted text-muted-foreground'
-          )}
-        >
-          <ArrowUp className="h-4 w-4" aria-hidden="true" />
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={submit}
+        disabled={!active}
+        aria-label="发送"
+        className={cn(
+          'absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors',
+          active
+            ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+            : 'bg-muted text-muted-foreground cursor-not-allowed',
+        )}
+      >
+        <ArrowUp className="h-4 w-4" aria-hidden="true" />
+      </button>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Empty state (used by /agent without a session id)
+// ---------------------------------------------------------------------------
 
 function EmptyState() {
   return (
@@ -241,6 +106,10 @@ function EmptyState() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// ChatPane — the right pane of LayoutShell's asideLeft slot
+// ---------------------------------------------------------------------------
 
 function ChatPane() {
   const { sessionId = '' } = useParams<{ sessionId: string }>();
@@ -277,7 +146,6 @@ function ChatPane() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
-      {/* Chat scroll */}
       <div className="flex-1 overflow-y-auto px-6 py-8">
         <div className="mx-auto flex max-w-3xl flex-col gap-6">
           {isEmpty ? (
@@ -305,15 +173,14 @@ function ChatPane() {
         />
       )}
 
-      {/* Composer */}
-      <footer className="border-t bg-bg-stage px-4 py-3">
+      <footer className="bg-bg-stage px-4 py-3">
         <div className="mx-auto max-w-3xl">
           <Composer
             input={input}
             setInput={setInput}
             onSend={send}
             loading={loading}
-            disabled={Boolean(pending) || !sessionId}
+            disabled={Boolean(pending)}
           />
           {!sessionId && (
             <p className="mt-2 text-center text-xs text-muted-foreground">
@@ -327,23 +194,12 @@ function ChatPane() {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace root
+// Default export — wraps the chat pane with the prefill auto-create flow.
+// When the Dashboard's "立即对话 →" button includes ?prefill=…, this page
+// creates a brand-new session the moment it mounts on /agent without a
+// sessionId, then navigates to /agent/:newId.
 // ---------------------------------------------------------------------------
 
-/**
- * AgentWorkspace — deepseek-style 2-pane chat workspace.
- *
- * Sidebar: list of past sessions, grouped by recency (7 days / 30 days / month).
- * Main pane: mode switcher + scrollable transcript + composer.
- *
- * Routes:
- *   - /agent             → empty workspace; composer disabled
- *   - /agent/:sessionId  → loads that session; composer enabled
- *
- * The page intentionally bypasses `LayoutShell` (no TopBar / SideNav /
- * PipelineRail) because the workspace is a focused full-screen chat surface
- * — users come here to talk to the agent.
- */
 export default function AgentWorkspace() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -353,17 +209,10 @@ export default function AgentWorkspace() {
     mutationFn: (title?: string) => api.createAgentSession(title),
     onSuccess: (s) => {
       qc.invalidateQueries({ queryKey: ['agent-sessions'] });
-      navigate(`/agent/${s.id}`);
+      navigate(`/agent/${s.id}`, { replace: true });
     },
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => api.deleteAgentSession(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent-sessions'] }),
-  });
-
-  // Wire the Dashboard "立即对话 →" prefill: when sessionId is missing
-  // and a ?prefill query param is present, create a new session immediately.
   const [searchParams] = useSearchParams();
   const prefill = searchParams.get('prefill') ?? '';
   useEffect(() => {
@@ -373,14 +222,5 @@ export default function AgentWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill, sessionId]);
 
-  return (
-    <div className="flex h-screen w-full overflow-hidden bg-bg">
-      <SessionSidebar
-        currentId={sessionId}
-        onNewChat={() => navigate('/agent')}
-        onDeleteChat={(id) => remove.mutate(id)}
-      />
-      <ChatPane />
-    </div>
-  );
+  return <ChatPane />;
 }

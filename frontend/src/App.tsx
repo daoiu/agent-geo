@@ -26,6 +26,7 @@ import AgentWorkspace from '@/pages/AgentWorkspace';
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
 import { navItems } from '@/components/layout/navConfig';
+import { AgentSessionListPanel } from '@/components/layout/AgentSessionListPanel';
 import { CommandPalette, useCommandPalette } from '@/components/layout/CommandPalette';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import type { Crumb } from '@/components/layout/Breadcrumb';
@@ -130,12 +131,14 @@ function LayoutShellRouter() {
   const crumbs = useMemo(() => crumbsFor(location.pathname), [location.pathname]);
   const [paletteOpen, setPaletteOpen] = useCommandPalette();
   const { theme, toggle: toggleTheme } = useDarkMode();
+  const isAgentRoute = location.pathname === '/agent' || location.pathname.startsWith('/agent/');
   return (
     <>
       <LayoutShell
         navItems={navItems}
         crumbs={crumbs}
         pipelineNodes={nodes}
+        asideLeft={isAgentRoute ? <AgentSessionListPanel /> : undefined}
         onOpenCommandPalette={() => setPaletteOpen(true)}
         isDark={theme === 'dark'}
         onToggleDark={toggleTheme}
