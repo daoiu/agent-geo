@@ -55,6 +55,12 @@ export default function ReportView() {
                 下载 PDF
               </a>
             )}
+            <Link
+              to={`/tasks/new?from_diagnosis=${report.id}&brand=${encodeURIComponent(report.brand.name)}`}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+            >
+              基于此诊断创建生成任务
+            </Link>
           </div>
         </div>
 
