@@ -6,6 +6,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
+
 from app.domain.exceptions import DocumentParseError
 
 
@@ -42,3 +45,32 @@ def parse_md(path: str) -> str:
     so downstream consumers (LLM prompts) can see structure.
     """
     return _read_text_file(path)
+
+
+def parse_pdf(path: str) -> str:
+    """Extract text from a PDF file.
+
+    Iterates all pages and joins with double newlines.
+    Raises DocumentParseError on missing file, corrupted PDF, or read error.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise DocumentParseError(doc_id=path, file_path=path, reason="file not found")
+    try:
+        reader = PdfReader(str(p))
+        texts: list[str] = []
+        for page in reader.pages:
+            try:
+                texts.append(page.extract_text() or "")
+            except Exception as e:  # noqa: BLE001
+                # One bad page shouldn't fail the whole PDF
+                texts.append(f"[page extraction failed: {e}]")
+        return "\n\n".join(t for t in texts if t.strip())
+    except PdfReadError as e:
+        raise DocumentParseError(
+            doc_id=path, file_path=path, reason=f"corrupted PDF: {e}"
+        ) from e
+    except Exception as e:  # noqa: BLE001
+        raise DocumentParseError(
+            doc_id=path, file_path=path, reason=str(e)
+        ) from e
