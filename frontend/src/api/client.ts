@@ -10,6 +10,13 @@ import type {
   KnowledgeDetail,
   Task,
 } from '@/types/v0.2';
+import type {
+  MentionSnapshot,
+  MonitorTask,
+  PublishJob,
+  PublisherConfig,
+  TrendData,
+} from '@/types/v0.3';
 
 const BASE = '/api';
 
@@ -139,6 +146,103 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ note }),
     });
+  },
+
+  // ---- v0.3: Publishers ----
+  listPublishers(): Promise<PublisherConfig[]> {
+    return request('/publishers');
+  },
+  createPublisher(body: {
+    name: string;
+    site_url: string;
+    username: string;
+    app_password: string;
+    is_default?: boolean;
+  }): Promise<PublisherConfig> {
+    return request('/publishers', { method: 'POST', body: JSON.stringify(body) });
+  },
+  updatePublisher(id: string, body: Partial<{
+    name: string;
+    site_url: string;
+    username: string;
+    app_password: string;
+    is_default: boolean;
+  }>): Promise<PublisherConfig> {
+    return request(`/publishers/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+  deletePublisher(id: string): Promise<void> {
+    return request(`/publishers/${id}`, { method: 'DELETE' });
+  },
+  testPublisher(id: string): Promise<{ ok: boolean; user?: unknown; error?: string }> {
+    return request(`/publishers/${id}/test`, { method: 'POST' });
+  },
+
+  // ---- v0.3: Publish Jobs ----
+  listPublishJobs(status?: string): Promise<PublishJob[]> {
+    const qs = status ? `?status=${status}` : '';
+    return request(`/publishes${qs}`);
+  },
+  createPublishJob(body: {
+    article_id: string;
+    config_id: string;
+    title_override?: string;
+  }): Promise<PublishJob> {
+    return request('/publishes', { method: 'POST', body: JSON.stringify(body) });
+  },
+  retryPublishJob(id: string): Promise<PublishJob> {
+    return request(`/publishes/${id}/retry`, { method: 'POST' });
+  },
+  cancelPublishJob(id: string): Promise<PublishJob> {
+    return request(`/publishes/${id}/cancel`, { method: 'POST' });
+  },
+
+  // ---- v0.3: Monitor Tasks ----
+  listMonitors(): Promise<MonitorTask[]> {
+    return request('/monitors');
+  },
+  createMonitor(body: {
+    name: string;
+    brand: string;
+    industry: string;
+    target_questions: string[];
+    frequency: 'hourly' | 'daily' | 'weekly';
+    providers?: string[];
+    notify_email?: string;
+    change_threshold?: number;
+  }): Promise<MonitorTask> {
+    return request('/monitors', { method: 'POST', body: JSON.stringify(body) });
+  },
+  updateMonitor(
+    id: string,
+    body: {
+      name: string;
+      brand: string;
+      industry: string;
+      target_questions: string[];
+      frequency: 'hourly' | 'daily' | 'weekly';
+      providers?: string[];
+      notify_email?: string;
+      change_threshold?: number;
+    },
+  ): Promise<MonitorTask> {
+    return request(`/monitors/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+  deleteMonitor(id: string): Promise<void> {
+    return request(`/monitors/${id}`, { method: 'DELETE' });
+  },
+  runMonitorNow(id: string): Promise<{ status: string }> {
+    return request(`/monitors/${id}/run`, { method: 'POST' });
+  },
+  getMonitorSnapshots(id: string, days = 30): Promise<MentionSnapshot[]> {
+    return request(`/monitors/${id}/snapshots?days=${days}`);
+  },
+  getMonitorTrends(id: string, days = 30): Promise<TrendData> {
+    return request(`/monitors/${id}/trends?days=${days}`);
+  },
+
+  // ---- v0.3: Notifications ----
+  sendTestEmail(to: string): Promise<{ ok: boolean; error?: string }> {
+    return request('/notifications/test', { method: 'POST', body: JSON.stringify({ to }) });
   },
 };
 
