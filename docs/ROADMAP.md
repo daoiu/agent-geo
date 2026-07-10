@@ -5,9 +5,9 @@
 ## 总体演进思路
 
 ```
-v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (Agent) →  v0.5 (行业)  →  v0.6 (SPA)
-   │              │              │               │                │              │
-  看清问题      给出方案        自动执行       自然语言入口      行业对标       完整覆盖
+v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (Agent) →  v0.5 (向量)  →  v0.6+ (行业/SPA)
+   │              │              │               │                │                │
+  看清问题      给出方案        自动执行       自然语言入口     检索质量升级      行业对标/SPA
 ```
 
 每完成一个版本，下个版本开始前要：
@@ -190,38 +190,71 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (Agent) →  v0
 
 ---
 
-## v0.5 — 竞品对比 + 行业基准
+## v0.5 — 向量检索升级（方向变更）✅ 设计 + 实施完成
 
-**目标**：从"看自己"变成"看自己 + 看对手 + 看行业"
+> **方向变更**：原 ROADMAP v0.5 是"竞品对比 + 行业基准"，用户重新定位为"向量检索升级"（基础设施改进）。原竞品对比推到 **v0.6+**。
+
+**目标**：把 v0.2 知识库的关键词搜索升级为"关键词 + 向量"混合检索，让召回率从 ~70% 提升到 ~90%，同时让 v0.4 agent 的 `search_knowledge` 工具透明升级。
 
 **核心新增能力**：
 
 | 模块 | 描述 |
 |---|---|
-| **竞品监控** | 用户添加竞品品牌，定期生成竞品 GEO 对比报告 |
-| **行业基准** | 按行业聚合数据：手机行业的平均提及率、白酒行业的平均分等 |
-| **基准定位** | "你的品牌在 XX 行业排前 30%" |
-| **行业报告订阅** | 每月生成行业 GEO 趋势报告（需付费） |
-| **白皮书 / 行业洞察** | 公开版本（marketing 用） |
+| **Embedding 服务** | 包装 bge-small-zh-v1.5（中文优化、本地、~95MB），class-level 缓存模型 |
+| **VectorIndex** | ChromaDB 嵌入式封装，每个 KB 一个 collection（`kb_{kb_id}`），cosine 距离 |
+| **HybridSearch + RRF** | 关键词 + 向量双路召回，RRF 融合（k=60），任一异常降级到纯关键词 |
+| **ReindexService** | 启动时 lazy 向量化，只处理 ChromaDB 缺失的 chunks（幂等） |
+| **增量同步 (spec §7)** | v0.2 上传/删除 API 钩入 ChromaDB；失败时 `pending_index=True`，下次 ReindexService 补齐 |
+| **v0.4 工具升级** | `search_knowledge` 内部从 `search_chunks_by_keyword` 改为 `search_chunks_hybrid`，API 形状不变 |
+| **前端** | **不变**（用户无感知） |
 
 **架构变化**：
-- 新增 `app/services/benchmark.py`（行业聚合查询）
-- 新增 `app/services/competitor.py`（竞品对比）
-- 前端新增"竞品看板"
-- 数据仓库升级（行业聚合需要 OLAP 能力）
-- 引入 Apache Superset 或类似 BI 工具（可选）
+- 新增 `app/services/embedding.py`（bge 包装）
+- 新增 `app/services/hybrid_search.py`（RRF 融合 + 降级）
+- 新增 `app/services/reindex.py`（启动 lazy 向量化）
+- 新增 `app/domain/knowledge/vector_index.py`（ChromaDB 封装）
+- `KnowledgeRepository` 新增 `search_chunks_hybrid` 方法（保留 `search_chunks_by_keyword` 给降级用）
+- `KnowledgeChunkORM` 新增 `pending_index: Boolean` 字段（spec §7）
+- `init_db()` 加 in-place 迁移：现有 DB 自动 `ALTER TABLE ADD COLUMN pending_index`
+- v0.2 上传（parser_worker）和删除（API）钩入 ChromaDB
+- main.py lifespan 在 `load_all_monitor_tasks` 后加 reindex
 
-**数据模型新增**：
-- `CompetitorRelation` 表：品牌与竞品关系
-- `IndustryBenchmark` 表：行业聚合指标
+**新增 Python 依赖**：
+- `chromadb==0.5.20`（嵌入式向量库）
+- `sentence-transformers==3.2.1`（embedding 模型加载）
+- 模型文件 `BAAI/bge-small-zh-v1.5`（~95MB，缓存到 `./data/models/`，Docker 构建时 COPY）
 
-**前置依赖**：v0.1 + v0.4 完成
+**数据存储新增**：
+- `./data/chroma/`（ChromaDB 持久化，docker-compose 挂载）
+- `./data/models/`（bge 模型，gitignore，Docker COPY）
 
-**估算工作量**：4-5 周
+**RAG 7 组件覆盖**：
+- ✅ 1. 数据管道（向量化）
+- ❌ 2. 查询理解（推到 v0.5.x）
+- ✅ 3. 多路召回（关键词 + 向量 2 路）
+- ⚠️ 4. 多层排序（RRF 轻量；cross-encoder rerank 推到 v0.5.1）
+- ✅ 5. 严格生成（v0.4 agent 已做）
+- ❌ 6. 持续评估（v0.6+）
+- ❌ 7. 闭环优化（v0.6+）
 
-**关键风险**：
-- 数据稀疏性（小行业可能只有 5 个品牌）
-- 商业化（订阅、付费墙）
+**前置依赖**：v0.1 + v0.2 + v0.3 + v0.4 完成 ✅
+
+**实施完成情况**：
+- 后端 402 个测试通过（v0.1+v0.2+v0.3+v0.4+v0.5 + E2E）
+- 14 个实施 commit（含 2 个新加任务：spec §7 增量同步）
+- 设计文档：`docs/superpowers/specs/2026-07-10-geo-agent-v0.5-design.md`
+- 实施计划：`docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.5.md`（14 个 task）
+- 手动验证清单：`docs/MANUAL_VERIFICATION_V0.5.md`（7 个场景 + 自动化覆盖说明）
+- 启动话术：`docs/HANDOFF_V0.5.md`
+
+**ROADMAP 调整**：
+- 原 v0.5（竞品对比 + 行业基准）→ 推到 **v0.6+**
+- 原 v0.6 向量检索（pgvector 计划）→ 提前到 v0.5，改为 ChromaDB 嵌入式（更轻）
+
+**v0.5.x 升级路径**（不在 v0.5 范围）：
+- v0.5.1 — Cross-encoder rerank（bge-reranker-large）⭐⭐⭐⭐⭐ 最优先
+- v0.5.2 — HyDE（用 LLM 生成假设文档再 embedding）
+- v0.5.3 — Query rewriting（LLM 改写 query）
 
 ---
 
