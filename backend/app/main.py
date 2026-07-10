@@ -5,7 +5,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import diagnosis, knowledge, publishers, reports, reviews, tasks
+from app.api import diagnosis, knowledge, notifications, publishers, reports, reviews, tasks
 from app.core.config import get_settings
 from app.core.db import dispose_db, init_db
 
@@ -14,7 +14,16 @@ from app.core.db import dispose_db, init_db
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """App startup + shutdown."""
     await init_db()
+    # v0.3 — start monitor scheduler and reload active tasks from DB
+    from app.domain.monitor.scheduler import (
+        load_all_monitor_tasks,
+        shutdown_scheduler,
+        start_scheduler,
+    )
+    start_scheduler()
+    await load_all_monitor_tasks()
     yield
+    shutdown_scheduler()
     await dispose_db()
 
 
@@ -43,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(reviews.router, prefix="/api")
     app.include_router(publishers.configs_router, prefix="/api")
     app.include_router(publishers.jobs_router, prefix="/api")
+    app.include_router(notifications.router, prefix="/api")
 
     @app.get("/health")
     def health() -> dict[str, str]:

@@ -87,3 +87,16 @@ async def _execute_monitor_run_scheduled(monitor_task_id: str) -> None:
     """Proxy function called by APScheduler."""
     from app.domain.monitor.monitor_service import execute_monitor_run
     await execute_monitor_run(monitor_task_id)
+
+
+async def load_all_monitor_tasks() -> None:
+    """On startup, reload all active monitor tasks from DB into the scheduler."""
+    from app.core.db import get_session_factory
+    from app.repositories.monitor_repo import MonitorRepository
+
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MonitorRepository(session)
+        tasks = await repo.list_active_monitor_tasks()
+        for task in tasks:
+            schedule_monitor_task(task)
