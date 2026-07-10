@@ -92,3 +92,21 @@ class PublishError(DomainError):
 
 class NotificationError(DomainError):
     """Email / notification delivery failed."""
+
+
+class HumanConfirmationRequired(DomainError):
+    """写类工具需要人工确认后才能继续执行。
+
+    由 ToolExecutor 在执行 generate_article 等写类工具时抛出，
+    携带 message_id（已落库的"待确认"消息）、tool_name 和 arguments，
+    ReAct 循环捕获后 yield SSE 事件 human_confirmation_required 并暂停。
+    """
+
+    def __init__(self, message_id: str, tool_name: str, arguments: dict) -> None:
+        self.message_id = message_id
+        self.tool_name = tool_name
+        self.arguments = arguments
+        super().__init__(
+            f"Tool {tool_name} requires human confirmation "
+            f"(message_id={message_id})"
+        )
