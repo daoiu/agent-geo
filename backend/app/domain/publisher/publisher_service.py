@@ -108,10 +108,15 @@ class PublishService:
         await self.repo.update_publish_job_status(job_id, status="failed", error=error)
         logger.warning("publish_failed", job_id=job_id, error=error)
         try:
+            recipient = self.settings.notify_email_default or self.settings.smtp_from
+            if not recipient:
+                # No recipient configured — skip silently (don't waste an SMTP call).
+                return
             from app.domain.notification.notification_service import notify_publish_failure
             await notify_publish_failure(
                 title="(unknown)", error=error, site_name="(unknown)",
-                recipient=self.settings.smtp_from or "",
+                recipient=recipient,
             )
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Notification failure must never block the failure-record write above.
+            logger.debug("publish_failure_notification_swallowed", error=str(exc))

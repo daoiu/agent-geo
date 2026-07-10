@@ -16,6 +16,7 @@ import PublisherConfigPage from '@/pages/PublisherConfig';
 import PublishList from '@/pages/PublishList';
 import MonitorList from '@/pages/MonitorList';
 import MonitorDetail from '@/pages/MonitorDetail';
+import NewMonitor from '@/pages/NewMonitor';
 import NotificationSettings from '@/pages/NotificationSettings';
 
 const queryClient = new QueryClient({
@@ -88,6 +89,7 @@ export default function App() {
           <Route path="/publishers" element={<PublisherConfigPage />} />
           <Route path="/publishes" element={<PublishList />} />
           <Route path="/monitors" element={<MonitorList />} />
+          <Route path="/monitors/new" element={<NewMonitor />} />
           <Route path="/monitors/:monitorId" element={<MonitorDetail />} />
           <Route path="/notifications" element={<NotificationSettings />} />
         </Routes>
