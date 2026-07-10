@@ -50,34 +50,72 @@ const queryClient = new QueryClient({
  * (rendered as plain text per a11y).
  */
 function crumbsFor(path: string): Crumb[] {
-  if (path === '/') return [{ label: '仪表盘' }];
-  if (path === '/new') return [{ label: '诊断', to: '/new' }, { label: '新建诊断' }];
+  if (path === '/')
+    return [{ label: '仪表盘', description: '全局诊断入口与最近的优化活动。' }];
+  if (path === '/new')
+    return [
+      { label: '诊断', to: '/new' },
+      { label: '新建诊断', description: '输入品牌信息，60-90 秒获取诊断报告。' },
+    ];
   if (path.startsWith('/diagnosis/'))
-    return [{ label: '诊断', to: '/new' }, { label: '诊断进度' }];
+    return [
+      { label: '诊断', to: '/new' },
+      { label: '诊断进度', description: '正在抓取与多 LLM 询问；可在这里看到实时信号。' },
+    ];
   if (path.startsWith('/reports/'))
-    return [{ label: '诊断', to: '/new' }, { label: '诊断报告' }];
+    return [
+      { label: '诊断', to: '/new' },
+      { label: '诊断报告', description: '五维评分、提及位置、情感分布。' },
+    ];
   if (path === '/knowledge')
-    return [{ label: '知识库' }];
+    return [{ label: '知识库', description: '上传 PDF / Word / MD 用于内容生成。' }];
   if (path.startsWith('/knowledge/'))
-    return [{ label: '知识库', to: '/knowledge' }, { label: '文档详情' }];
-  if (path === '/tasks') return [{ label: '生成', to: '/tasks' }, { label: '生成任务' }];
-  if (path === '/tasks/new') return [{ label: '生成', to: '/tasks' }, { label: '创建任务' }];
+    return [
+      { label: '知识库', to: '/knowledge' },
+      { label: '文档详情', description: '本 KB 的 chunks 与 hybrid 引用情况。' },
+    ];
+  if (path === '/tasks')
+    return [{ label: '生成', to: '/tasks' }, { label: '生成任务' }];
+  if (path === '/tasks/new')
+    return [
+      { label: '生成', to: '/tasks' },
+      { label: '创建任务', description: '选 KB → 配置主题与风格 → 启动批量生成。' },
+    ];
   if (path.startsWith('/tasks/'))
     return [{ label: '生成', to: '/tasks' }, { label: '任务详情' }];
-  if (path === '/reviews') return [{ label: '审核', to: '/reviews' }, { label: '审核队列' }];
+  if (path === '/reviews')
+    return [{ label: '审核', to: '/reviews' }, { label: '审核队列' }];
   if (path.startsWith('/reviews/'))
     return [{ label: '审核', to: '/reviews' }, { label: '文章审核' }];
-  if (path === '/publishers') return [{ label: '发布', to: '/publishes' }, { label: '平台配置' }];
-  if (path === '/publishes') return [{ label: '发布' }, { label: '发布历史' }];
-  if (path === '/monitors') return [{ label: '监测', to: '/monitors' }, { label: '品牌监测' }];
-  if (path === '/monitors/new') return [{ label: '监测', to: '/monitors' }, { label: '新建监测' }];
+  if (path === '/publishers')
+    return [{ label: '发布', to: '/publishes' }, { label: '平台配置' }];
+  if (path === '/publishes')
+    return [{ label: '发布' }, { label: '发布历史' }];
+  if (path === '/monitors')
+    return [{ label: '监测', to: '/monitors' }, { label: '品牌监测' }];
+  if (path === '/monitors/new')
+    return [
+      { label: '监测', to: '/monitors' },
+      { label: '新建监测', description: '配置品牌、问题频率、通知策略。' },
+    ];
   if (path.startsWith('/monitors/'))
     return [{ label: '监测', to: '/monitors' }, { label: '监测详情' }];
-  if (path === '/notifications') return [{ label: '监测', to: '/monitors' }, { label: '阈值通知' }];
-  if (path === '/agent') return [{ label: '智能助手' }, { label: '会话列表' }];
+  if (path === '/notifications')
+    return [
+      { label: '监测', to: '/monitors' },
+      { label: '阈值通知', description: '邮件渠道与监测阈值默认。' },
+    ];
+  if (path === '/agent')
+    return [{ label: '智能助手' }, { label: '会话列表' }];
   if (path.startsWith('/agent/'))
     return [{ label: '智能助手', to: '/agent' }, { label: '会话' }];
-  if (path === '/settings') return [{ label: '设置' }];
+  if (path === '/settings')
+    return [
+      {
+        label: '设置',
+        description: '后端连通性、版本信息与各模块入口。变更类操作请前往对应模块页。',
+      },
+    ];
   return [{ label: path }];
 }
 

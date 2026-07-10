@@ -51,9 +51,7 @@ export default function KnowledgeDetail() {
       <div className="max-w-4xl mx-auto px-4">
         <Link to="/knowledge" className="text-primary text-sm">
           ← 返回知识库列表
-        </Link>
-        <h1 className="text-3xl font-bold text-foreground mt-2 mb-2">{kb.name}</h1>
-        {kb.description && (
+        </Link>{kb.description && (
           <p className="text-muted-foreground mb-6">{kb.description}</p>
         )}
 

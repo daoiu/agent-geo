@@ -23,10 +23,7 @@ export default function ReviewQueue() {
 
   return (
     <div className="min-h-screen bg-muted py-8">
-      <div className="max-w-4xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-foreground mb-6">审核队列</h1>
-
-        <div className="flex gap-2 mb-4">
+      <div className="max-w-4xl mx-auto px-4"><div className="flex gap-2 mb-4">
           {(['pending', 'approved', 'rejected'] as const).map((s) => (
             <button
               key={s}

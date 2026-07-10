@@ -52,9 +52,9 @@ export function LayoutShell({
           <SideNav items={navItems} />
         </aside>
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-7xl px-6 py-5">
+          <div className="mx-auto max-w-7xl px-6 py-6">
             <Breadcrumb items={crumbs} />
-            <div className="mt-4 flex gap-6">
+            <div className="mt-6 flex gap-6">
               <div className="min-w-0 flex-1">{children}</div>
               {contextPane && (
                 <aside className="hidden w-80 shrink-0 xl:block" aria-label="上下文面板">

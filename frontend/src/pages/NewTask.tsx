@@ -52,11 +52,6 @@ export default function NewTask() {
   return (
     <div className="min-h-screen bg-muted py-8">
       <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-foreground mb-2">新建生成任务</h1>
-        <p className="text-muted-foreground mb-6">
-          配置生成参数，AI 将基于知识库生成文章
-        </p>
-
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">任务名 *</label>

@@ -23,9 +23,7 @@ export default function PublishList() {
 
   return (
     <div className="min-h-screen bg-muted py-8">
-      <div className="max-w-4xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-foreground mb-6">发布任务</h1>
-        {isLoading && <p className="text-muted-foreground">加载中...</p>}
+      <div className="max-w-4xl mx-auto px-4">{isLoading && <p className="text-muted-foreground">加载中...</p>}
         {jobs && jobs.length === 0 && (
           <div className="bg-white rounded-lg shadow p-8 text-center text-muted-foreground">
             还没有发布任务。<br />

@@ -15,9 +15,7 @@ export default function MonitorList() {
   return (
     <div className="min-h-screen bg-muted py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-foreground">监测任务</h1>
-          <Link to="/monitors/new" className="px-4 py-2 bg-primary text-white rounded-md">
+        <div className="flex justify-between items-center mb-6"><Link to="/monitors/new" className="px-4 py-2 bg-primary text-white rounded-md">
             + 新建监测
           </Link>
         </div>

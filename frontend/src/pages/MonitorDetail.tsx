@@ -40,9 +40,7 @@ export default function MonitorDetail() {
   return (
     <div className="min-h-screen bg-muted py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <Link to="/monitors" className="text-primary text-sm">← 返回监测列表</Link>
-        <h1 className="text-3xl font-bold text-foreground mt-2">{monitor.name}</h1>
-        <p className="text-muted-foreground mt-1">{monitor.brand} · {monitor.industry}</p>
+        <Link to="/monitors" className="text-primary text-sm">← 返回监测列表</Link><p className="text-muted-foreground mt-1">{monitor.brand} · {monitor.industry}</p>
 
         <div className="bg-white rounded-lg shadow p-4 mt-4 flex justify-between items-center">
           <div>

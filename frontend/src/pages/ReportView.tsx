@@ -35,11 +35,7 @@ export default function ReportView() {
         {/* Header */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground mb-2">
-                {report.brand.name}
-              </h1>
-              <p className="text-muted-foreground">
+            <div><p className="text-muted-foreground">
                 {report.brand.industry} · {report.brand.official_url}
               </p>
               <p className="text-sm text-muted-foreground mt-1">

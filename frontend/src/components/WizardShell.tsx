@@ -10,10 +10,9 @@ interface WizardShellProps {
 
 export function WizardShell({ currentStep, totalSteps, stepTitles, children }: WizardShellProps) {
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="bg-muted py-8">
       <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">GEO 诊断</h1>
-        <p className="text-gray-600 mb-6">输入品牌信息，60-90 秒获取诊断报告</p>
+        {/* Page title now comes from the breadcrumb via LayoutShell. */}
 
         {/* Step indicator */}
         <div className="flex items-center mb-8">
@@ -22,24 +21,24 @@ export function WizardShell({ currentStep, totalSteps, stepTitles, children }: W
               <div
                 className={cn(
                   'w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium',
-                  idx < currentStep && 'bg-green-500 text-white',
-                  idx === currentStep && 'bg-blue-600 text-white',
-                  idx > currentStep && 'bg-gray-200 text-gray-500',
+                  idx < currentStep && 'bg-[hsl(var(--brand-success))] text-white',
+                  idx === currentStep && 'bg-primary text-primary-foreground',
+                  idx > currentStep && 'bg-muted text-muted-foreground',
                 )}
               >
                 {idx < currentStep ? '✓' : idx + 1}
               </div>
-              <div className={cn('ml-2 text-sm', idx === currentStep ? 'font-medium' : 'text-gray-500')}>
+              <div className={cn('ml-2 text-sm', idx === currentStep ? 'font-medium text-foreground' : 'text-muted-foreground')}>
                 {title}
               </div>
               {idx < totalSteps - 1 && (
-                <div className={cn('flex-1 h-px mx-3', idx < currentStep ? 'bg-green-500' : 'bg-gray-200')} />
+                <div className={cn('flex-1 h-px mx-3', idx < currentStep ? 'bg-[hsl(var(--brand-success))]' : 'bg-border')} />
               )}
             </div>
           ))}
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">{children}</div>
+        <div className="bg-card border border-border rounded-lg shadow-card p-6">{children}</div>
       </div>
     </div>
   );

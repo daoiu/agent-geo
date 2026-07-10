@@ -42,11 +42,7 @@ export default function ReviewArticle() {
       <div className="max-w-3xl mx-auto px-4">
         <Link to="/reviews" className="text-primary text-sm">
           ← 返回审核队列
-        </Link>
-        <h1 className="text-3xl font-bold text-foreground mt-2">
-          {article.title || '（无标题）'}
-        </h1>
-        <div className="text-sm text-muted-foreground mt-1">
+        </Link><div className="text-sm text-muted-foreground mt-1">
           状态：{article.review_status} · 由 {article.llm_provider || '未知'}{' '}
           生成
         </div>

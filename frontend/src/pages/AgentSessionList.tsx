@@ -29,9 +29,7 @@ export default function AgentSessionList() {
   return (
     <div className="min-h-screen bg-muted py-8">
       <div className="max-w-3xl mx-auto px-4">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-foreground">Agent 会话</h1>
-          <button
+        <div className="flex justify-between items-center mb-6"><button
             type="button"
             onClick={() => create.mutate()}
             disabled={create.isPending}

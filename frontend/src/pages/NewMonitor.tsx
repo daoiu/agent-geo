@@ -42,9 +42,7 @@ export default function NewMonitor() {
 
   return (
     <div className="min-h-screen bg-muted py-8">
-      <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-foreground mb-6">新建监测任务</h1>
-        <form onSubmit={submit} className="bg-white rounded-lg shadow p-6 space-y-4">
+      <div className="max-w-2xl mx-auto px-4"><form onSubmit={submit} className="bg-white rounded-lg shadow p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">任务名称</label>
             <input

@@ -34,9 +34,7 @@ export default function PublisherConfigPage() {
   return (
     <div className="min-h-screen bg-muted py-8">
       <div className="max-w-3xl mx-auto px-4">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-foreground">WordPress 凭证</h1>
-          <button
+        <div className="flex justify-between items-center mb-6"><button
             type="button"
             onClick={() => setShowForm(true)}
             className="px-4 py-2 bg-primary text-white rounded-md"

@@ -63,9 +63,7 @@ export default function TaskDetail() {
       <div className="max-w-4xl mx-auto px-4">
         <Link to="/tasks" className="text-primary text-sm">
           ← 返回任务列表
-        </Link>
-        <h1 className="text-3xl font-bold text-foreground mt-2">{task.name}</h1>
-        <p className="text-muted-foreground mt-1">主题：{task.topic}</p>
+        </Link><p className="text-muted-foreground mt-1">主题：{task.topic}</p>
         <p className="text-sm text-muted-foreground">创建于 {formatDate(task.created_at)}</p>
 
         {/* Status + progress */}

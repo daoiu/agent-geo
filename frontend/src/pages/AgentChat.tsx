@@ -175,9 +175,7 @@ export default function AgentChat() {
       <header className="bg-white border-b px-4 py-3 flex justify-between items-center">
         <Link to="/agent" className="text-primary text-sm hover:underline">
           ← 返回
-        </Link>
-        <h1 className="text-lg font-semibold">{session.title}</h1>
-        <div className="w-12" />
+        </Link><div className="w-12" />
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">

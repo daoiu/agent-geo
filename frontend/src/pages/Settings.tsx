@@ -32,13 +32,6 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="rounded-lg border border-border bg-card p-6 shadow-card">
-        <h1 className="text-2xl font-semibold text-foreground">系统设置</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          查看后端连通性、LLM 配置状态与各模块入口。变更类操作请前往对应模块页。
-        </p>
-      </header>
-
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>

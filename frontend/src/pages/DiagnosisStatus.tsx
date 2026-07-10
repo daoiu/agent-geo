@@ -71,11 +71,7 @@ export default function DiagnosisStatus() {
 
   return (
     <div className="min-h-screen bg-muted flex items-center justify-center">
-      <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-        <h1 className="text-2xl font-bold text-foreground mb-2">
-          {STATUS_LABELS[task.status] ?? '处理中...'}
-        </h1>
-        <p className="text-muted-foreground mb-6">
+      <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full"><p className="text-muted-foreground mb-6">
           品牌：<strong>{task.request.brand_name}</strong>
         </p>
 

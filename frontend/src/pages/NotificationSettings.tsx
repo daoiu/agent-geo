@@ -12,9 +12,7 @@ export default function NotificationSettings() {
 
   return (
     <div className="min-h-screen bg-muted py-8">
-      <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-foreground mb-6">通知设置</h1>
-        <div className="bg-white rounded-lg shadow p-6">
+      <div className="max-w-2xl mx-auto px-4"><div className="bg-white rounded-lg shadow p-6">
           <p className="text-sm text-muted-foreground mb-4">
             通知邮件使用 .env 中配置的 SMTP 服务。点击下方按钮发送测试邮件，验证 SMTP 配置正确。
           </p>
