@@ -178,6 +178,19 @@ class LLMClient:
             "tool_calls": tool_calls,
         }
 
+    async def simple_chat(self, prompt: str) -> str:
+        """简单文本聊天（无工具）。返回 assistant 的内容。
+
+        用于 v0.4 自动生成标题等轻量场景。
+        """
+        client = self._make_async_client(self._providers["deepseek"])
+        response = await client.chat.completions.create(
+            model=self.settings.deepseek_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+        )
+        return response.choices[0].message.content or ""
+
     @staticmethod
     def _build_prompt(question: str, brand: str, industry: str) -> str:
         return (
