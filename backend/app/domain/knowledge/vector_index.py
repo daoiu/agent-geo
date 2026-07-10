@@ -34,16 +34,33 @@ class VectorIndex:
             metadata={"hnsw:space": "cosine"},  # use cosine distance
         )
 
-    def add_chunks(self, chunks: list[dict]) -> None:
+    def add_chunks(
+        self,
+        chunks: list[dict],
+        embeddings: list[list[float]] | None = None,
+    ) -> None:
         """Add chunks to the index.
 
         chunks: [{'id', 'content', 'doc_id', 'chunk_index'}, ...]
+        embeddings: 预计算的 bge 向量(每 chunk 一个 512 维向量,顺序与 chunks 对齐)。
+                     **必须**传入,否则 ChromaDB 会用其默认 embedding function(英文、
+                     384 维)与 bge-small-zh-v1.5(中文、512 维)不一致,导致语义检索错误。
         """
         if not chunks:
             return
+        if embeddings is None:
+            raise ValueError(
+                "embeddings 必须由调用方预计算(EmbeddingService.embed),"
+                "否则 ChromaDB 会用默认 embedding function 与 bge 不一致"
+            )
+        if len(embeddings) != len(chunks):
+            raise ValueError(
+                f"embeddings 长度({len(embeddings)})与 chunks 长度({len(chunks)})不匹配"
+            )
         self._collection.add(
             ids=[c["id"] for c in chunks],
             documents=[c["content"] for c in chunks],
+            embeddings=embeddings,
             metadatas=[
                 {
                     "doc_id": c["doc_id"],

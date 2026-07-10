@@ -1,4 +1,4 @@
-"""Tests for EmbeddingService."""
+"""EmbeddingService 测试(bge-small-zh-v1.5 包装)。"""
 from unittest.mock import patch, MagicMock
 
 import numpy as np
@@ -9,15 +9,14 @@ from app.services.embedding import EmbeddingService
 
 class TestEmbed:
     def test_embed_returns_list_of_vectors(self) -> None:
-        """embed() should return a list with one 512-dim vector per input text."""
-        # Mock sentence-transformers so we don't actually load the model
+        """embed() 应返回与输入文本数对应的 512 维向量列表。"""
         with patch("app.services.embedding.SentenceTransformer") as MockST:
             mock_model = MagicMock()
-            # Return 2 vectors of dim 512 (the bge-small-zh-v1.5 output dim)
+            # 返回 2 个 512 维向量(模拟 bge-small-zh-v1.5 输出)
             mock_model.encode.return_value = np.random.rand(2, 512).astype(np.float32)
             MockST.return_value = mock_model
 
-            # Reset class-level cache
+            # 重置 class-level 缓存
             EmbeddingService._model = None
 
             vectors = EmbeddingService.embed(["hello", "world"])
@@ -27,7 +26,7 @@ class TestEmbed:
             assert len(vectors[1]) == 512
 
     def test_embed_normalizes(self) -> None:
-        """embed() should call encode with normalize_embeddings=True."""
+        """embed() 应传 normalize_embeddings=True(余弦距离要求向量归一化)。"""
         with patch("app.services.embedding.SentenceTransformer") as MockST:
             mock_model = MagicMock()
             mock_model.encode.return_value = np.array([[0.1] * 512], dtype=np.float32)
@@ -35,12 +34,11 @@ class TestEmbed:
             EmbeddingService._model = None
 
             EmbeddingService.embed(["test"])
-            # Check that normalize_embeddings was passed
             call_kwargs = mock_model.encode.call_args.kwargs
             assert call_kwargs.get("normalize_embeddings") is True
 
     def test_model_is_cached(self) -> None:
-        """Second call should not re-instantiate SentenceTransformer."""
+        """第二次调用不应重新实例化 SentenceTransformer(避免 5-10s 模型加载)。"""
         with patch("app.services.embedding.SentenceTransformer") as MockST:
             mock_model = MagicMock()
             mock_model.encode.return_value = np.array([[0.1] * 512], dtype=np.float32)
@@ -49,11 +47,11 @@ class TestEmbed:
 
             EmbeddingService.embed(["x"])
             EmbeddingService.embed(["y"])
-            # Should be called only once
+            # 应只调用一次
             assert MockST.call_count == 1
 
     def test_model_path_uses_configured_dir(self) -> None:
-        """SentenceTransformer should be initialized with the configured cache_folder."""
+        """SentenceTransformer 应使用配置中的 cache_folder 路径(让 Docker COPY 生效)。"""
         with patch("app.services.embedding.SentenceTransformer") as MockST:
             mock_model = MagicMock()
             mock_model.encode.return_value = np.array([[0.1] * 512], dtype=np.float32)

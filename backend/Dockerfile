@@ -20,6 +20,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY data ./data
 
+# v0.5 — bge-small-zh-v1.5 模型 (~95MB,gitignore)
+# build context 必须有 backend/data/models/models--BAAI--bge-small-zh-v1.5/
+# (本地预下载或 CI 单独 step 注入).COPY 失败会让 ReindexService 启动时无模型可用。
+COPY data/models /app/data/models
+
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000

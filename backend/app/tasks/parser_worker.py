@@ -73,28 +73,34 @@ async def parse_document(doc_id: str) -> None:
         )
 
         # v0.5 — incremental sync: push new chunks to ChromaDB (spec §7)
+        # 关键:bge embeddings 必须由调用方预计算后传入,否则 ChromaDB 会用默认英文
+        # embedding function,导致语义检索错乱(R1 修复)。
         try:
             from app.domain.knowledge.vector_index import VectorIndex
             from app.services.embedding import EmbeddingService
-            chunk_ids = await repo.list_chunk_ids_for_doc(doc.id)
-            all_chunks = await repo.list_chunks(doc.kb_id)
-            new_chunks = [c for c in all_chunks if c.doc_id == doc.id]
+            new_chunks = await repo.list_chunks_for_doc(doc.id)
             if new_chunks:
+                texts = [c.content for c in new_chunks]
+                embeddings = EmbeddingService.embed(texts)
                 index = VectorIndex(doc.kb_id)
-                index.add_chunks([
-                    {
-                        "id": c.id,
-                        "content": c.content,
-                        "doc_id": c.doc_id,
-                        "chunk_index": c.chunk_index,
-                    }
-                    for c in new_chunks
-                ])
+                index.add_chunks(
+                    [
+                        {
+                            "id": c.id,
+                            "content": c.content,
+                            "doc_id": c.doc_id,
+                            "chunk_index": c.chunk_index,
+                        }
+                        for c in new_chunks
+                    ],
+                    embeddings=embeddings,
+                )
                 logger.info("v0.5_chroma_indexed", doc_id=doc.id, chunks=len(new_chunks))
         except Exception as e:  # noqa: BLE001
-            # Mark chunks pending; ReindexService will retry at next startup
+            # 只把本批 new_chunks 标记 pending(不是整个 doc 的全部 chunks),
+            # 避免重解析时污染已成功索引的旧 chunks(R5 修复)。
             try:
-                await repo.mark_chunks_pending(chunk_ids)
+                await repo.mark_chunks_pending([c.id for c in new_chunks])
             except Exception:
                 pass
             logger.warning(

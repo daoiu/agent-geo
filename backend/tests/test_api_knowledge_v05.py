@@ -1,4 +1,4 @@
-"""Tests for v0.5 incremental sync hooks in knowledge API + parser worker (spec §7)."""
+"""v0.5 增量同步钩子测试(知识库 API + parser worker,spec §7)。"""
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -6,7 +6,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_delete_document_calls_chroma_delete(db_session) -> None:
-    """DELETE /api/knowledge/{kb_id}/documents/{doc_id} should call VectorIndex.delete_chunks."""
+    """DELETE 文档路由应调 VectorIndex.delete_chunks 清理向量。"""
     from app.repositories.knowledge_repo import KnowledgeRepository
 
     repo = KnowledgeRepository(db_session)
@@ -36,7 +36,7 @@ async def test_delete_document_calls_chroma_delete(db_session) -> None:
 
 @pytest.mark.asyncio
 async def test_delete_document_chroma_failure_does_not_break_api(db_session) -> None:
-    """ChromaDB delete failure should not cause API to return 500."""
+    """ChromaDB 删除失败不应让 API 返回 500(降级为 warning)。"""
     from app.repositories.knowledge_repo import KnowledgeRepository
 
     repo = KnowledgeRepository(db_session)
@@ -65,16 +65,15 @@ async def test_delete_document_chroma_failure_does_not_break_api(db_session) -> 
 
 @pytest.mark.asyncio
 async def test_parse_worker_indexes_chunks_to_chroma(db_session) -> None:
-    """After parse, new chunks should be added to ChromaDB."""
-    from app.repositories.knowledge_repo import KnowledgeRepository
+    """解析后,新 chunks 应带预计算 bge embeddings 加入 ChromaDB。"""
     import os
     import tempfile
 
-    # Create a real file for the parser
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write("Hello world. This is a test document with multiple sentences. " * 20)
         tmp_path = f.name
 
+    from app.repositories.knowledge_repo import KnowledgeRepository
     repo = KnowledgeRepository(db_session)
     kb = await repo.create_kb(name="KB")
     doc = await repo.add_document(
@@ -83,24 +82,29 @@ async def test_parse_worker_indexes_chunks_to_chroma(db_session) -> None:
     )
     await db_session.commit()
 
-    with patch("app.domain.knowledge.vector_index.VectorIndex") as MockIndex:
+    with patch("app.services.embedding.EmbeddingService") as MockEmbed, \
+         patch("app.domain.knowledge.vector_index.VectorIndex") as MockIndex:
+        # R1 修复:EmbeddingService.embed 必须被调用,产出 bge 向量
+        MockEmbed.embed.return_value = [[0.1] * 512, [0.2] * 512]
         mock_index = MockIndex.return_value
 
-        # Run parse_document directly
         from app.tasks.parser_worker import parse_document
         await parse_document(doc.id)
 
-        # VectorIndex should be constructed and add_chunks called
-        MockIndex.assert_called_with(kb.id)
+        # EmbeddingService.embed 至少被调一次
+        assert MockEmbed.embed.called
+        # VectorIndex.add_chunks 必须被调,且传入 embeddings 参数
         assert mock_index.add_chunks.called
+        call_kwargs = mock_index.add_chunks.call_args.kwargs
+        assert "embeddings" in call_kwargs
+        assert call_kwargs["embeddings"] == [[0.1] * 512, [0.2] * 512]
 
     os.unlink(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_parse_worker_marks_chunks_pending_on_chroma_failure(db_session) -> None:
-    """If ChromaDB add fails, chunks should be marked pending_index=True."""
-    from app.repositories.knowledge_repo import KnowledgeRepository
+async def test_parse_worker_marks_only_new_chunks_pending_on_chroma_failure(db_session) -> None:
+    """R5 修复:ChromaDB 失败时只标 NEW chunks 为 pending(不污染 doc 的旧 chunks)。"""
     from app.models.orm_v02 import KnowledgeChunkORM
     from sqlalchemy import select
     import os, tempfile
@@ -109,6 +113,7 @@ async def test_parse_worker_marks_chunks_pending_on_chroma_failure(db_session) -
         f.write("Some test content. " * 30)
         tmp_path = f.name
 
+    from app.repositories.knowledge_repo import KnowledgeRepository
     repo = KnowledgeRepository(db_session)
     kb = await repo.create_kb(name="KB")
     doc = await repo.add_document(
@@ -117,13 +122,15 @@ async def test_parse_worker_marks_chunks_pending_on_chroma_failure(db_session) -
     )
     await db_session.commit()
 
-    with patch("app.domain.knowledge.vector_index.VectorIndex") as MockIndex:
+    with patch("app.services.embedding.EmbeddingService") as MockEmbed, \
+         patch("app.domain.knowledge.vector_index.VectorIndex") as MockIndex:
+        MockEmbed.embed.return_value = [[0.1] * 512, [0.2] * 512]
         mock_index = MockIndex.return_value
         mock_index.add_chunks.side_effect = Exception("ChromaDB down")
         from app.tasks.parser_worker import parse_document
         await parse_document(doc.id)
 
-    # Verify chunks are marked pending_index=True
+    # 验证:本批 NEW chunks 都被标 pending_index=True
     result = await db_session.execute(
         select(KnowledgeChunkORM).where(KnowledgeChunkORM.kb_id == kb.id)
     )
