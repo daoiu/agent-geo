@@ -130,6 +130,45 @@ class KnowledgeRepository:
         await self.session.commit()
         return len(rows)
 
+    async def add_chunks_returning(
+        self, doc_id: str, kb_id: str, chunks: list[dict]
+    ) -> list[KnowledgeChunkORM]:
+        """v0.5: Bulk insert chunks and return them. Used for ChromaDB sync."""
+        rows = [
+            KnowledgeChunkORM(
+                id=str(uuid.uuid4()),
+                doc_id=doc_id,
+                kb_id=kb_id,
+                chunk_index=c["chunk_index"],
+                content=c["content"],
+                content_length=c["content_length"],
+            )
+            for c in chunks
+        ]
+        self.session.add_all(rows)
+        await self.session.commit()
+        return rows
+
+    async def mark_chunks_pending(self, chunk_ids: list[str]) -> None:
+        """v0.5: Set pending_index=True for given chunk ids. Used when ChromaDB sync fails."""
+        if not chunk_ids:
+            return
+        from sqlalchemy import update
+        await self.session.execute(
+            update(KnowledgeChunkORM)
+            .where(KnowledgeChunkORM.id.in_(chunk_ids))
+            .values(pending_index=True)
+        )
+        await self.session.commit()
+
+    async def list_chunk_ids_for_doc(self, doc_id: str) -> list[str]:
+        """v0.5: Return all chunk IDs for a document (used by delete cascade)."""
+        from sqlalchemy import select
+        result = await self.session.execute(
+            select(KnowledgeChunkORM.id).where(KnowledgeChunkORM.doc_id == doc_id)
+        )
+        return [row[0] for row in result.all()]
+
     async def list_chunks(self, kb_id: str) -> list[KnowledgeChunkORM]:
         result = await self.session.execute(
             select(KnowledgeChunkORM)

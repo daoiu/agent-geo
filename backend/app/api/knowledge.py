@@ -100,10 +100,23 @@ async def delete_document(
     doc = await repo.get_document(doc_id)
     if doc is None or doc.kb_id != kb_id:
         raise HTTPException(status_code=404, detail="document not found")
+    # v0.5 — incremental sync: get chunk IDs before delete so we can clean ChromaDB
+    chunk_ids = await repo.list_chunk_ids_for_doc(doc_id)
     await session.execute(
         delete(KnowledgeDocumentORM).where(KnowledgeDocumentORM.id == doc_id)
     )
     await session.commit()
+    # v0.5 — best-effort ChromaDB cleanup (failures here don't break the API)
+    if chunk_ids:
+        try:
+            from app.domain.knowledge.vector_index import VectorIndex
+            VectorIndex(kb_id).delete_chunks(chunk_ids)
+        except Exception as e:  # noqa: BLE001
+            import structlog
+            structlog.get_logger().warning(
+                "v0.5_chroma_delete_failed", doc_id=doc_id,
+                kb_id=kb_id, error=str(e),
+            )
     return Response(status_code=204)
 
 

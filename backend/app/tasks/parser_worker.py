@@ -71,6 +71,37 @@ async def parse_document(doc_id: str) -> None:
         await repo.update_document_status(
             doc.id, status="success", chunk_count=len(chunks)
         )
+
+        # v0.5 — incremental sync: push new chunks to ChromaDB (spec §7)
+        try:
+            from app.domain.knowledge.vector_index import VectorIndex
+            from app.services.embedding import EmbeddingService
+            chunk_ids = await repo.list_chunk_ids_for_doc(doc.id)
+            all_chunks = await repo.list_chunks(doc.kb_id)
+            new_chunks = [c for c in all_chunks if c.doc_id == doc.id]
+            if new_chunks:
+                index = VectorIndex(doc.kb_id)
+                index.add_chunks([
+                    {
+                        "id": c.id,
+                        "content": c.content,
+                        "doc_id": c.doc_id,
+                        "chunk_index": c.chunk_index,
+                    }
+                    for c in new_chunks
+                ])
+                logger.info("v0.5_chroma_indexed", doc_id=doc.id, chunks=len(new_chunks))
+        except Exception as e:  # noqa: BLE001
+            # Mark chunks pending; ReindexService will retry at next startup
+            try:
+                await repo.mark_chunks_pending(chunk_ids)
+            except Exception:
+                pass
+            logger.warning(
+                "v0.5_chroma_index_failed",
+                doc_id=doc.id, error=str(e), will_retry_on_restart=True,
+            )
+
         logger.info("parse_done", doc_id=doc.id, chunks=len(chunks))
 
 
