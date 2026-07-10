@@ -1,54 +1,70 @@
 # 新会话启动话术
 
-> **目的**：让新打开的 Claude Code 会话（零上下文）能立即理解项目状态、v0.4 完成情况、v0.5 准备工作。
+> **目的**：让新打开的 Claude Code 会话（零上下文）能立即理解项目状态、v0.5 完成情况、v0.6+ 准备工作。
 
 ## 当前项目状态（2026-07-10）
 
-- ✅ **v0.1 诊断** + **v0.2 知识库 + 内容生成** + **v0.3 发布 + 监测闭环** + **v0.4 自主决策 Agent** 全部设计 + 实施完成
-- 🎯 **v0.5** 是下一步：行业基准 / 竞品对比 + 向量检索升级（已有 spec + plan）
-- 后端 **387 个测试通过**，前端 `tsc --noEmit` 0 errors
+- ✅ **v0.1 诊断** + **v0.2 知识库 + 内容生成** + **v0.3 发布 + 监测闭环** + **v0.4 自主决策 Agent** + **v0.5 向量检索升级** 全部设计 + 实施完成
+- 🎯 **v0.6+** 是下一步：行业基准 / 竞品对比 / SPA 爬虫 / 评估体系（按 ROADMAP 优先级选定）
+- 后端 **406 个测试通过**，前端 `tsc --noEmit` 0 errors
 
 详细版本演进见 [ROADMAP.md](ROADMAP.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
-## 启动 v0.5 实施（最新版）
+## 启动 v0.6+ 实施（最新版 — 方向待 brainstorm 决定）
+
+> **注意**：v0.6+ 方向需在 v0.5 完成后重新对齐。按 v0.5 经验,ROADMAP 原始定义常被用户重新定位（如 v0.4 改方向、v0.5 改方向）。**不要直接按 ROADMAP v0.6 章节启动实施**,先 brainstorm 选方向。
+
+候选方向（按 ROADMAP 优先级 + v0.5 升级路径）：
+
+| 候选 | 来源 | 优先级 |
+|---|---|---|
+| **跨行业基准 / 竞品对比** | ROADMAP v0.6+ | 商业价值最高 |
+| **SPA 渲染爬虫（Playwright）** | ROADMAP v0.6 | 解决 JS 重渲染页面爬不到 |
+| **v0.5.1 cross-encoder rerank** | v0.5 spec §13.1 | 检索准确率 +10-15% |
+| **v0.5.2 HyDE（假设文档 embedding）** | v0.5 spec §13.2 | 召回率 +5-10%（尤其短查询） |
+| **v0.5.3 query rewriting** | v0.5 spec §13.3 | 召回率 +5%（尤其口语化） |
+| **持续评估体系** | ROADMAP v0.6+ | 闭环优化前置 |
+
+**v0.6+ 实施流程**（方向决定后）：
 
 ```
-按 D:/GEO2/docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.5.md
-实施 GEO Agent v0.5（行业基准 + 竞品对比 + 向量检索升级）。
+按 <待写 plan 路径>
+实施 GEO Agent v0.6+（<方向描述>）。
 
-前置条件：v0.1 + v0.2 + v0.3 + v0.4 代码已存在并测试通过。
+前置条件：v0.1 + v0.2 + v0.3 + v0.4 + v0.5 代码已存在并测试通过（406 测试通过）。
 
 流程：
 1. 调 superpowers:using-superpowers skill
-2. 读 plan + specs/2026-07-10-geo-agent-v0.5-design.md
-3. 报告读完，问执行方式（subagent-driven / inline）
-4. 简体中文回复，Conventional Commits，TDD 严格
+2. 调 superpowers:brainstorming skill 先确认方向
+3. 写新 spec（docs/superpowers/specs/YYYY-MM-DD-geo-agent-v0.6-design.md）
+4. 写新 plan（docs/superpowers/plans/YYYY-MM-DD-geo-optimization-agent-v0.6.md）
+5. 报告读完，问执行方式（subagent-driven / inline）
+6. 简体中文回复，Conventional Commits，TDD 严格
 
 约束：
-- 复用 v0.1-v0.4 的所有模块（不重写）
-- 不引入新 LLM SDK（用 v0.1 的 LLMClient 扩展）
-- 沿用 v0.4 的 SSE / 持久化模式
-- 写类工具（如果有）需 human confirmation
-- v0.4 SSRF 守卫继续生效（环境变量控制 dev/prod）
+- 复用 v0.1-v0.5 所有模块（不重写）
+- v0.5 向量检索已就绪 → v0.6+ 重点放在上层（评估/竞品/SPA/Agent 扩展）
+- 沿用 v0.5 的 RRF 融合 + 降级 + 增量同步模式
+- 任何新外部依赖要重新评估（v0.5 已加 chromadb + sentence-transformers,~300MB 起步）
 ```
 
 ---
 
-## 启动 v0.4 实施（已完成 — 仅当 v0.4 之前未实施时使用）
+## 启动 v0.5 实施（已完成 — 仅当 v0.5 之前未实施时使用）
 
-如果新会话需要重新理解 v0.4 的设计，可读 v0.4 spec 和 plan：
+如果新会话需要重新理解 v0.5 的设计,可读 v0.5 spec 和 plan:
 
 ```
-按 D:/GEO2/docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.4.md
-实施 GEO Agent v0.4（~22 个 task：自主决策 Agent 层）。
+按 D:/GEO2/docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.5.md
+实施 GEO Agent v0.5（~14 个 task:向量检索升级 + spec §7 增量同步)。
 
-流程：
+流程:
 1. 调 superpowers:using-superpowers skill
-2. 读 plan + specs/2026-07-10-geo-agent-v0.4-design.md
-3. 报告读完，问执行方式（subagent-driven / inline）
-4. 简体中文回复，Conventional Commits，TDD 严格
+2. 读 plan + specs/2026-07-10-geo-agent-v0.5-design.md
+3. 报告读完,问执行方式（subagent-driven / inline）
+4. 简体中文回复,Conventional Commits,TDD 严格
 ```
 
 ---

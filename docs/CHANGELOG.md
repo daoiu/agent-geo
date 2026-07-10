@@ -2,6 +2,100 @@
 
 记录 GEO Optimization Agent 每个版本的变更。格式基于 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [v0.5] - 2026-07-10
+
+### 方向变更
+
+- 原 ROADMAP v0.5 "竞品对比 + 行业基准" → 推迟到 **v0.6+**
+- v0.5 实际定位:**向量检索升级**(bge + ChromaDB + RRF 混合)
+- 原因:召回率从 ~70% → ~90% 是基础设施改进,让 v0.4 agent 透明升级
+
+### 新增(Added)
+
+- **Embedding 服务**:`app/services/embedding.py`(bge-small-zh-v1.5,class-level 缓存,懒加载)
+- **VectorIndex**:`app/domain/knowledge/vector_index.py`(ChromaDB 嵌入式封装,每个 KB 一个 `kb_{kb_id}` collection,cosine 距离)
+- **HybridSearch + RRF**:`app/services/hybrid_search.py`(关键词 + 向量双路召回,RRF k=60 融合,任一异常降级到纯关键词)
+- **ReindexService**:`app/services/reindex.py`(启动时 lazy 向量化,只处理缺失或 `pending_index=True` 的 chunks,幂等;**启动时也清理孤儿 ChromaDB 向量**)
+- **增量同步(spec §7)**:
+  - `knowledge_chunks.pending_index: Boolean` 字段(标记同步失败)
+  - `KnowledgeRepository.mark_chunks_pending` / `list_chunk_ids_for_doc` / `list_chunks_for_doc` 辅助方法
+  - `parser_worker.py` 解析成功后调 `VectorIndex.add_chunks`(传预计算 embeddings);失败时 mark pending
+  - `api/knowledge.py` DELETE 文档路由调 `VectorIndex.delete_chunks`;失败仅 warning 不破坏 API
+  - `init_db()` 加 in-place 迁移:`ALTER TABLE knowledge_chunks ADD COLUMN pending_index`(幂等)
+- **v0.4 agent 工具升级**:`tool_executor._execute_search_knowledge` 内部从 `search_chunks_by_keyword` 改为 `search_chunks_hybrid`,API 形状不变(返回多带 `rrf_score` / `sources` 字段)
+- **FastAPI lifespan 钩入**:`main.py` 在 `load_all_monitor_tasks` 后调 `ReindexService().reindex_all()`,日志 `v0.5_reindex_done`
+- **6 个新 settings**:`chroma_path` / `models_cache_dir` / `embedding_batch_size` / `hybrid_top_k_vector` / `hybrid_top_k_keyword` / `hybrid_rrf_k`
+- **Dockerfile**:`COPY data/models /app/data/models`(bge 模型 gitignore,Docker 构建时 COPY)
+
+### 依赖(Dependencies)
+
+- 新增 `chromadb==0.5.20`(嵌入式向量库)
+- 新增 `sentence-transformers==3.2.1`(embedding 模型加载,首次安装 ~300MB 含 torch CPU)
+- 模型文件 `BAAI/bge-small-zh-v1.5`(~95MB,缓存到 `./data/models/`,gitignore)
+
+### 数据存储(Data)
+
+- 新增 `./data/chroma/`(ChromaDB 持久化,gitignore)
+- 新增 `./data/models/`(bge 模型,gitignore)
+- 现有 Docker 卷需挂载这两个新目录
+
+### Review 修复(Review Fixes)
+
+- **R1**:`VectorIndex.add_chunks` 强制要求 `embeddings` 参数(避免 ChromaDB 默认英文 embedding 错模型,bug 严重)
+- **R2**:`ReindexService` 显式读 `pending_index=True` 触发 reindex(符合 spec §7.2/§9 语义)
+- **R5**:`parser_worker` 只 mark 本批 NEW chunks 为 pending(重解析不污染已成功索引的旧 chunks)
+- **R6**:`ReindexService` 走 `VectorIndex.add_chunks` 封装(不再直接 `index._collection.add(...)`)
+- **R7**:`ReindexService` 清理孤儿 ChromaDB 向量(SQLite 没有但 ChromaDB 仍有的旧向量,来自失败的 DELETE 文档路径)
+- **R10**:v0.5 新增 7 个测试文件 docstring 翻译成中文(plan 规范)
+- **R11**:`parser_worker` 用 `list_chunks_for_doc(doc_id)` 精确查询(避免 `list_chunks(kb_id)` 全表扫)
+
+### 测试(Tests)
+
+- 后端 **406 个测试全过**(v0.5 实施 402 + review 修复新增 4)
+- 新增 9 个测试文件:
+  - `test_embedding.py`(4 tests,EmbeddingService)
+  - `test_vector_index.py`(10 tests,VectorIndex 含 embeddings 必传校验)
+  - `test_hybrid_search.py`(8 tests,RRF 融合 + 降级)
+  - `test_reindex.py`(5 tests,含 pending_index 显式读 + 孤儿清理)
+  - `test_knowledge_repo.py` 新增 1 个 hybrid test
+  - `test_tool_executor.py` 新增 1 个 hybrid 集成 test
+  - `test_pending_index_v05.py`(3 tests,迁移幂等)
+  - `test_api_knowledge_v05.py`(4 tests,spec §7 钩子)
+  - `test_startup_v05.py`(1 test,lifespan reindex 钩子)
+  - `test_e2e_v05.py`(4 tests,语义匹配 + 双路命中)
+
+### 手动验证(Manual Verification)
+
+- 7 个手动场景:`docs/MANUAL_VERIFICATION_V0.5.md`
+  1. 混合检索召回率提升
+  2. 启动时 lazy 向量化
+  3. 新增文档自动向量化
+  4. 删除文档级联清理
+  5. ChromaDB 不可用时降级
+  6. 单次 hybrid search < 500ms
+  7. v0.4 agent 工具升级
+
+### 不变 / 用户无感知
+
+- ✅ **前端不变** — 透明升级,无新页面
+- ✅ **API 路径不变** — 仅 `_execute_search_knowledge` 内部实现改变
+- ✅ **v0.2 现有数据兼容** — `pending_index` 字段默认 0,旧 DB 自动 ALTER 加上
+
+### 已知限制(已知推到 v0.5.x / v0.6+)
+
+- ❌ cross-encoder rerank → v0.5.1(准确率 +10-15%)
+- ❌ HyDE → v0.5.2(召回率 +5-10%)
+- ❌ query rewriting → v0.5.3(召回率 +5%)
+- ❌ 行业基准 / 竞品对比 → v0.6+
+- ❌ SPA 爬虫 → v0.6+
+
+### ROADMAP 调整
+
+- 原 v0.5(竞品对比 + 行业基准)→ 推迟到 **v0.6+**
+- 原 v0.6 向量检索(pgvector 计划)→ 提前到 v0.5,改为 ChromaDB 嵌入式(更轻、不引独立服务)
+
+---
+
 ## [v0.4] - 2026-07-10
 
 ### 新增（Added）
