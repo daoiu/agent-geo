@@ -2,6 +2,36 @@
 
 记录 GEO Optimization Agent 每个版本的变更。格式基于 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [v0.6] - 2026-07-10 (进行中)
+
+### 方向变更
+
+- 定位从「GEO 诊断 Agent」调整为「**GEO 优化系统**」 —— 一个 6 阶段 GEO 优化操作系统（诊断 → 生成 → 审核 → 发布 → 监测 → 跟踪）
+- v0.6 实际定位:前端全面 UI/UX 重设计,核心新增**流程可视化**与**智能感强化**
+
+### Phase 0 已完成 (本 PR)
+
+- **设计令牌**:`src/lib/tokens.ts` 单源真理 + CSS variables + Tailwind extend (Teal `#0D9488` + Orange `#EA580C` + Inter 字体)
+- **测试基建**:vitest + @testing-library/react + axe-core/playwright
+- **15 个公共组件**:Button / Input / Select / Textarea / Spinner / FieldWrapper / Card / Badge / EmptyState / Modal / Drawer / ConfirmDialog / Skeleton / Tooltip / Tabs / Accordion / Stepper (`src/components/ui/`)
+- **6 个流程可视化组件**:StageCard / LiveSignal / RankBadge / KnowledgeChunkCard / MentionMatrix / ReasoningTrace (`src/components/flow/`)
+- **Layout Shell 基础**:TopBar (新 Logo + brand) + SideNav (7 组 IA) + Breadcrumb + LayoutShell (含 context pane 槽位) + PipelineRail (6 节点全局底栏, P0 stub 状态)
+- **App 接入**:`src/App.tsx` 改为 LayoutShellRouter,19 个旧路由全部保留,新增 `/settings` 占位
+- **62 个单测 + e2e (LayoutShell + a11y)**:全过
+
+### Phase 0 不做 (留给 P1+)
+
+- 真实 `usePipelineState` 数据接入 (P0 stub 全 pending)
+- 各 page 内部使用新组件重写
+- dark mode (接口预留但不发布)
+- `/settings` 实际实现
+- 流式 LLM token-by-token 输出
+
+### 风险
+
+- 旧 page 内部仍使用 `bg-blue-600` / `text-gray-900` 等与新 token 不一致的硬编码；视觉"新旧混搭"直到 P1-P5 渐进替换
+- 旧 `Header` 已删除 (集成进 LayoutShell)
+
 ## [v0.5] - 2026-07-10
 
 ### 方向变更
