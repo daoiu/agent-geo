@@ -1,4 +1,5 @@
 """Database engine and session management."""
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -23,6 +24,15 @@ def get_engine() -> AsyncEngine:
             echo=False,
             future=True,
         )
+        # Enable SQLite foreign key cascade enforcement
+        if settings.database_url.startswith("sqlite"):
+
+            @event.listens_for(_engine.sync_engine, "connect")
+            def _enable_sqlite_fk(dbapi_conn, _conn_record):  # noqa: ANN001
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA foreign_keys=ON")
+                cur.close()
+
     return _engine
 
 

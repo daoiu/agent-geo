@@ -27,10 +27,21 @@ async def temp_db() -> AsyncGenerator[str, None]:
 @pytest_asyncio.fixture
 async def db_session(temp_db: str) -> AsyncGenerator[AsyncSession, None]:
     """Provide an initialized DB with schema and a session bound to it."""
+    from sqlalchemy import event
     from app.core.db import init_db
     from app.models.orm import Base
 
     engine = create_async_engine(temp_db)
+
+    # Enable SQLite foreign key cascade enforcement (needed for ON DELETE CASCADE)
+    if temp_db.startswith("sqlite"):
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_sqlite_fk(dbapi_conn, _conn_record):  # noqa: ANN001
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
