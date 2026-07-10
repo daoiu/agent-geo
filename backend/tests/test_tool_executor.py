@@ -316,20 +316,22 @@ class TestSearchKnowledge:
         self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """chunk content > 500 字符被截断到 500。"""
-        from app.models.orm_v02 import KnowledgeChunkORM
-
         long_content = "x" * 1000  # > 500
 
-        async def fake_search(*args, **kwargs):
+        async def fake_hybrid(*args, **kwargs):
             return [
-                KnowledgeChunkORM(
-                    id="c1", doc_id="d1", kb_id="kb1", chunk_index=0,
-                    content=long_content, content_length=1000,
-                )
+                {
+                    "id": "c1",
+                    "content": long_content,
+                    "metadata": {"doc_id": "d1", "chunk_index": 0, "kb_id": "kb1"},
+                    "_rrf_score": 1.0,
+                    "_sources": ["vector", "keyword"],
+                }
             ]
 
         monkeypatch.setattr(
-            "app.domain.knowledge.retriever.search_chunks", fake_search
+            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            fake_hybrid,
         )
 
         result = await executor._execute_search_knowledge(
@@ -348,20 +350,22 @@ class TestSearchKnowledge:
         self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """chunk content ≤ 500 字符完整保留。"""
-        from app.models.orm_v02 import KnowledgeChunkORM
-
         short_content = "短内容只有 30 个字符"
 
-        async def fake_search(*args, **kwargs):
+        async def fake_hybrid(*args, **kwargs):
             return [
-                KnowledgeChunkORM(
-                    id="c1", doc_id="d1", kb_id="kb1", chunk_index=0,
-                    content=short_content, content_length=len(short_content),
-                )
+                {
+                    "id": "c1",
+                    "content": short_content,
+                    "metadata": {"doc_id": "d1", "chunk_index": 0, "kb_id": "kb1"},
+                    "_rrf_score": 1.0,
+                    "_sources": ["vector", "keyword"],
+                }
             ]
 
         monkeypatch.setattr(
-            "app.domain.knowledge.retriever.search_chunks", fake_search
+            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            fake_hybrid,
         )
 
         result = await executor._execute_search_knowledge(
@@ -377,11 +381,12 @@ class TestSearchKnowledge:
         self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """没有匹配 chunk 时返回空列表。"""
-        async def fake_search(*args, **kwargs):
+        async def fake_hybrid(*args, **kwargs):
             return []
 
         monkeypatch.setattr(
-            "app.domain.knowledge.retriever.search_chunks", fake_search
+            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            fake_hybrid,
         )
 
         result = await executor._execute_search_knowledge(
@@ -396,18 +401,20 @@ class TestSearchKnowledge:
         self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """返回的 chunk 包含 id / doc_id / chunk_index 字段。"""
-        from app.models.orm_v02 import KnowledgeChunkORM
-
-        async def fake_search(*args, **kwargs):
+        async def fake_hybrid(*args, **kwargs):
             return [
-                KnowledgeChunkORM(
-                    id="chunk-abc", doc_id="doc-xyz", kb_id="kb1",
-                    chunk_index=3, content="some content", content_length=12,
-                )
+                {
+                    "id": "chunk-abc",
+                    "content": "some content",
+                    "metadata": {"doc_id": "doc-xyz", "chunk_index": 3, "kb_id": "kb1"},
+                    "_rrf_score": 1.0,
+                    "_sources": ["vector"],
+                }
             ]
 
         monkeypatch.setattr(
-            "app.domain.knowledge.retriever.search_chunks", fake_search
+            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            fake_hybrid,
         )
 
         result = await executor._execute_search_knowledge(
@@ -418,6 +425,39 @@ class TestSearchKnowledge:
         assert c["id"] == "chunk-abc"
         assert c["doc_id"] == "doc-xyz"
         assert c["chunk_index"] == 3
+
+    @pytest.mark.asyncio
+    async def test_search_knowledge_uses_hybrid_search(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """v0.5: _execute_search_knowledge should use search_chunks_hybrid, not keyword-only."""
+        called_kwargs: dict = {}
+
+        async def fake_hybrid(self, **kwargs):
+            called_kwargs.update(kwargs)
+            return [
+                {
+                    "id": "c1",
+                    "content": "found",
+                    "metadata": {"doc_id": "d1", "chunk_index": 0, "kb_id": "kb1"},
+                    "_rrf_score": 1.0,
+                    "_sources": ["vector", "keyword"],
+                }
+            ]
+
+        monkeypatch.setattr(
+            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            fake_hybrid,
+        )
+
+        result = await executor._execute_search_knowledge(
+            type("Args", (), {"kb_id": "kb1", "query": "test", "limit": 5})()
+        )
+
+        # Verify hybrid was called (not keyword-only)
+        assert called_kwargs == {"kb_id": "kb1", "query": "test", "top_k": 5}
+        assert "rrf_score" in result["chunks"][0]
+        assert result["chunks"][0]["sources"] == ["vector", "keyword"]
 
 
 class TestGenerateArticleConfirmed:

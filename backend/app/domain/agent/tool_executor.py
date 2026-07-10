@@ -136,36 +136,33 @@ class ToolExecutor:
         }
 
     async def _execute_search_knowledge(self, args: SearchKnowledgeArgs) -> dict:
-        """搜索知识库。包装 v0.2 KnowledgeRepository。
+        """搜索知识库（v0.5 hybrid: 向量 + 关键词 + RRF）。
 
         chunk content 截断到 500 字符，避免 LLM 上下文爆炸。
+        v0.5 升级：从纯关键词改为向量+关键词混合检索（接口不变）。
         """
         from app.core.db import get_session_factory
-        from app.domain.knowledge.retriever import (
-            extract_search_keywords,
-            search_chunks,
-        )
+        from app.repositories.knowledge_repo import KnowledgeRepository
 
-        keywords = extract_search_keywords(args.query)
-
-        factory = get_session_factory()
-        async with factory() as session:
-            chunks = await search_chunks(
-                session=session,
+        async with get_session_factory()() as session:
+            repo = KnowledgeRepository(session)
+            chunks = await repo.search_chunks_hybrid(
                 kb_id=args.kb_id,
-                keywords=keywords,
+                query=args.query,
                 top_k=args.limit,
             )
 
         truncated: list[dict] = []
         for c in chunks:
-            content = c.content[:500]
+            content = c["content"][:500]
             truncated.append({
-                "id": c.id,
-                "doc_id": c.doc_id,
-                "chunk_index": c.chunk_index,
+                "id": c["id"],
+                "doc_id": c["metadata"].get("doc_id"),
+                "chunk_index": c["metadata"].get("chunk_index"),
                 "content": content,
                 "content_length": len(content),
+                "rrf_score": c.get("_rrf_score"),
+                "sources": c.get("_sources", []),
             })
 
         return {
