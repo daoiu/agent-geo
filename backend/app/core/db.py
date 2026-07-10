@@ -51,6 +51,23 @@ async def init_db() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # v0.5 — in-place migration: add pending_index to existing knowledge_chunks
+    # (create_all doesn't add columns to existing tables)
+    await _migrate_v05_add_pending_index()
+
+
+async def _migrate_v05_add_pending_index() -> None:
+    """Add knowledge_chunks.pending_index to existing DBs (no-op if already present)."""
+    from sqlalchemy import text
+    engine = get_engine()
+    async with engine.begin() as conn:
+        # Check if column exists
+        result = await conn.execute(text("PRAGMA table_info(knowledge_chunks)"))
+        columns = {row[1] for row in result.fetchall()}
+        if "pending_index" not in columns:
+            await conn.execute(
+                text("ALTER TABLE knowledge_chunks ADD COLUMN pending_index BOOLEAN NOT NULL DEFAULT 0")
+            )
 
 
 async def dispose_db() -> None:

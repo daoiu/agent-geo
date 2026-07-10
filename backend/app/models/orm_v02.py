@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Integer, String, Text, TIMESTAMP
+from sqlalchemy import ForeignKey, Integer, String, Text, TIMESTAMP, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.orm import Base
@@ -62,6 +62,8 @@ class KnowledgeChunkORM(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_length: Mapped[int] = mapped_column(Integer, nullable=False)
+    # v0.5 — set when SQLite write succeeds but ChromaDB add fails; ReindexService picks it up
+    pending_index: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), default=_utcnow, nullable=False
     )
