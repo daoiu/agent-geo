@@ -157,3 +157,22 @@ class KnowledgeRepository:
                 scored.append((score, chunk))
         scored.sort(key=lambda x: -x[0])
         return [c for _, c in scored[:top_k]]
+
+    async def search_chunks_hybrid(
+        self,
+        kb_id: str,
+        query: str,
+        top_k: int = 5,
+    ) -> list[dict]:
+        """Hybrid search: vector + keyword + RRF fusion.
+
+        Returns top_k chunks ordered by RRF score. Each result has:
+            - id: chunk UUID
+            - content: chunk text
+            - metadata: {doc_id, chunk_index, kb_id}
+            - _rrf_score: combined relevance score
+            - _sources: list of ['vector', 'keyword']
+        """
+        # Import here to avoid circular import
+        from app.services.hybrid_search import HybridSearch
+        return await HybridSearch().search(kb_id=kb_id, query=query, top_k=top_k)
