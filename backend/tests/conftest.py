@@ -20,8 +20,16 @@ async def temp_db() -> AsyncGenerator[str, None]:
     os.close(fd)
     url = f"sqlite+aiosqlite:///{path}"
     yield url
-    if os.path.exists(path):
-        os.remove(path)
+    # Windows: file may still be held briefly after async teardown.
+    for _ in range(5):
+        if not os.path.exists(path):
+            break
+        try:
+            os.remove(path)
+            break
+        except PermissionError:
+            import time
+            time.sleep(0.1)
 
 
 @pytest_asyncio.fixture
