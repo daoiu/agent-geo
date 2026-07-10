@@ -27,6 +27,20 @@
 - `/settings` 实际实现
 - 流式 LLM token-by-token 输出
 
+### Phase 1 / P1.3 已完成 (本批)
+
+- **后端 — 跨 KB 全局 hybrid 召回**:新增 `GET /knowledge/search?q=&limit=`(`api/knowledge.py` 注册顺序:放在 `/{kb_id}` 之前避免路径冲突)
+  - `app/repositories/knowledge_repo.py` 新增 `search_chunks_all_keywords(keywords, top_k)` — **单次 SQL JOIN** chunks + documents + bases,跨 KB 关键词打分并倒推 `kb_name`/`doc_filename`
+  - `app/services/hybrid_search.py` 新增 `HybridSearch.search_across_kbs(query, top_k)` — **vector 循环 (每个 KB 一个 `kb_{kb_id}` ChromaDB collection) + 全局 keyword + RRF 融合**,per-KB 向量异常自动降级
+  - `app/models/knowledge.py` 新增 `GlobalKnowledgeHit`、`GlobalKnowledgeSearchResult`(带 `sources: ['vector'|'keyword']`、`score: float`)
+- **前端 — `/knowledge` 顶部全局搜索面板**:
+  - `src/pages/KnowledgeList.tsx` 顶部新增搜索框,回车触发,命中卡带 KB 名 badge + 文档名 + 来源 chip + score;按来源按钮直接跳详情
+  - `src/api/client.ts` 新增 `searchKnowledgeGlobal(q, limit)`,`src/types/v0.2.ts` 加 `GlobalKnowledgeHit`/`GlobalKnowledgeSearchResult` 类型
+- **测试 + 验证**:
+  - 后端 `tests/test_knowledge_global_search.py` 7 cases:repo join 排序 + 空集合、service 降级 + 元数据回填、api 三档校验(`q` 空 → 422,`limit>50` → 422)。Full backend suite **420 passed**
+  - 前端 `src/pages/KnowledgeList.test.tsx` 6 cases:渲染、不传 kb_id、Enter 触发、命中标签、空结果提示、空 query 不调用。Full frontend suite **24 files · 87 passed** (+6)
+- **RAG 设计语义**:本接口显式对齐 RAG **召回**阶段 —— 全语料池召回,不让用户报 KB 名,返回时即标注来源,直接接 RAG 的 re-rank + generation
+
 ### 风险
 
 - 旧 page 内部仍使用 `bg-blue-600` / `text-gray-900` 等与新 token 不一致的硬编码；视觉"新旧混搭"直到 P1-P5 渐进替换

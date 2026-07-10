@@ -47,7 +47,7 @@ def rrf_fusion(
 
 
 class HybridSearch:
-    """Orchestrates vector + keyword + RRF with graceful fallback."""
+    """Orchestrate vector + keyword + RRF with graceful fallback."""
 
     async def search(
         self,
@@ -67,12 +67,9 @@ class HybridSearch:
 
     async def _hybrid_search(self, kb_id: str, query: str, top_k: int) -> list[dict]:
         settings = get_settings()
-        # 1. Vector search
         index = VectorIndex(kb_id)
         vector_results = index.query(query_text=query, top_k=settings.hybrid_top_k_vector)
-        # 2. Keyword search
         keyword_results = await self._keyword_search(kb_id, query, top_k=settings.hybrid_top_k_keyword)
-        # 3. RRF fusion
         return rrf_fusion(vector_results, keyword_results, top_k=top_k, k=settings.hybrid_rrf_k)
 
     async def _keyword_search(self, kb_id: str, query: str, top_k: int) -> list[dict]:
@@ -100,3 +97,84 @@ class HybridSearch:
             }
             for c in chunks
         ]
+
+    async def search_across_kbs(self, query: str, top_k: int = 10) -> list[dict]:
+        """v0.6 P1.3: hybrid recall across **all** knowledge bases.
+
+        Runs vector search per-KB against each KB's ChromaDB collection and
+        a single global keyword search, then RRF-fuses them into one ranked
+        list. Each hit carries ``metadata.kb_name`` + ``doc_filename`` so
+        the caller can render attribution. Per-KB vector failures are
+        logged + skipped (degraded mode).
+        """
+        settings = get_settings()
+        import jieba
+
+        # 1. Vector recall: enumerate KBs, query each collection, tag with kb_name
+        kb_list: list = []
+        try:
+            async with get_session_factory()() as session:
+                repo = KnowledgeRepository(session)
+                kb_list = await repo.list_kbs()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("cross_kb_list_failed, falling back to keyword",
+                           error=str(e))
+
+        vector_results: list[dict] = []
+        kb_name_by_id = {kb.id: kb.name for kb in kb_list}
+        for kb in kb_list:
+            try:
+                index = VectorIndex(kb.id)
+                hits = index.query(
+                    query_text=query,
+                    top_k=settings.hybrid_top_k_vector,
+                )
+                for hit in hits:
+                    hit["_kb_name"] = kb.name
+                vector_results.extend(hits)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "cross_kb_vector_failed",
+                    kb_id=kb.id, kb_name=kb.name, error=str(e),
+                )
+
+        # 2. Global keyword recall: chunks joined with documents + bases
+        keywords = [w for w in jieba.cut(query) if len(w.strip()) > 1]
+        keyword_results: list[dict] = []
+        if keywords:
+            try:
+                async with get_session_factory()() as session:
+                    repo = KnowledgeRepository(session)
+                    kw_hits = await repo.search_chunks_all_keywords(
+                        keywords=keywords,
+                        top_k=settings.hybrid_top_k_keyword,
+                    )
+                for hit in kw_hits:
+                    keyword_results.append(
+                        {
+                            "id": hit["chunk"].id,
+                            "content": hit["chunk"].content,
+                            "metadata": {
+                                "doc_id": hit["doc_id"],
+                                "chunk_index": hit["chunk_index"],
+                                "kb_id": hit["kb_id"],
+                                "kb_name": hit["kb_name"],
+                                "doc_filename": hit["doc_filename"],
+                            },
+                            "_sources": ["keyword"],
+                        }
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("cross_kb_keyword_failed", error=str(e))
+
+        # 3. Backfill kb_name on vector-only hits
+        for hit in vector_results:
+            meta = hit.setdefault("metadata", {})
+            if not meta.get("kb_name"):
+                meta["kb_name"] = kb_name_by_id.get(meta.get("kb_id", ""), "")
+
+        # 4. RRF fusion
+        return rrf_fusion(
+            vector_results, keyword_results,
+            top_k=top_k, k=settings.hybrid_rrf_k,
+        )

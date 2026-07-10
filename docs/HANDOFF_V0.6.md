@@ -1,6 +1,6 @@
-# HANDOFF — v0.6 前端全面重设计 (Phase 0)
+# HANDOFF — v0.6 前端全面重设计 (Phase 0 + P1.3)
 
-> 最后更新: 2026-07-10
+> 最后更新: 2026-07-11
 
 ## 已完成
 
@@ -12,6 +12,51 @@
 - **62 个单测 + e2e (布局 + a11y)**:全过
 - **文档**:`frontend/docs/DESIGN.md` (tokens 速查)
 - **CHANGELOG** 增加 v0.6 section
+
+## Phase 1 / P1.3 — 跨 KB 全局 hybrid 召回 (2026-07-11)
+
+> 目标:对齐 RAG 召回语义 — 全语料池召回,不强制传 kb_id,每个命中带来源
+
+- **后端**:
+  - `GET /knowledge/search?q=&limit=`(`api/knowledge.py`,**注册在 `/{kb_id}` 之前**以避免 FastAPI 把 `kb_id="search"` 当成真实 KB 拦截)
+  - `KnowledgeRepository.search_chunks_all_keywords(keywords, top_k)`(`repositories/knowledge_repo.py`)— 单次 SQL JOIN chunks + documents + bases,跨 KB 关键词打分,返回 (chunk, kb_name, doc_filename)
+  - `HybridSearch.search_across_kbs(query, top_k)`(`services/hybrid_search.py`)— 每个 KB 调一次 `VectorIndex.query`(失败降级)+ 一次全局关键词召回 + RRF 融合
+  - `GlobalKnowledgeHit`/`GlobalKnowledgeSearchResult`(`models/knowledge.py`)— 含 `score`(RRF fused)、`sources`(subset of `["vector","keyword"]`)
+- **前端**:
+  - `KnowledgeList.tsx` 顶部新增「跨知识库全文检索」面板 — `<input type="search">` + Enter 触发;命中卡展示 KB 名 badge、文档名、`sources` chip、`score`;每条带「打开知识库 →」链接跳详情
+  - `client.ts` + `types/v0.2.ts` 加 `searchKnowledgeGlobal(q, limit)`
+- **测试**:
+  - 后端 `tests/test_knowledge_global_search.py` — 7 cases
+  - 前端 `src/pages/KnowledgeList.test.tsx` — 6 cases
+  - 全量:**后端 420 passed / 前端 24 files · 87 passed**
+
+### 手动验证 P1.3
+
+```bash
+# 1. 启动
+cd backend && uvicorn app.main:app --port 8000 &
+cd frontend && npm run dev
+
+# 2. 浏览器开 http://localhost:5173 → 「知识库」
+#    - 顶部输入框敲「云吞 马蹄」回车
+#    - 命中卡显示「北北云吞」badge、「北北云吞.md」来源、score 数字、keyword chip
+#    - 点「打开知识库 →」跳转到 /knowledge/<kb_id>
+
+# 3. 不传 kb_id
+curl 'http://localhost:8000/api/knowledge/search?q=%E4%BA%91%E5%90%9E&limit=5'
+# 期望 200 + hits[].kb_name != "" 且 hits[].doc_filename != ""
+
+# 4. 错误路径
+curl 'http://localhost:8000/api/knowledge/search?q='         # 422
+curl 'http://localhost:8000/api/knowledge/search?q=hi&limit=999'  # 422
+```
+
+### 注意事项
+
+- **路由顺序**:`/knowledge/search` 在 `app/api/knowledge.py` 注册位置**必须**在 `@router.get("/{kb_id}")` 之前,否则会被当作 `kb_id="search"` 的 KB 详情请求
+- **降级**:`VectorIndex` 任意一个 KB 抛异常 → 该 KB 的向量命中丢弃,关键词路径不受影响;全量 chroma 不可用时退化为纯 keyword(行为同单 KB `HybridSearch.search`)
+- **缓存键**:前端 `['knowledge-global-search', query]` + `enabled: false` — 仅手动触发(Enter),输入框每次 keystroke 不打后端
+- **未实施范围**:跨 KB 的 re-rank(MMR / cross-encoder)、来源 KB 高亮拼接到 RAG prompt、未做 — 留 v0.6+
 
 ## 验证
 

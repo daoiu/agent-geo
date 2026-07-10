@@ -188,6 +188,55 @@ class KnowledgeRepository:
         scored.sort(key=lambda x: -x[0])
         return [c for _, c in scored[:top_k]]
 
+    async def search_chunks_all_keywords(
+        self, keywords: list[str], top_k: int = 50
+    ) -> list[dict]:
+        """Cross-KB keyword search (v0.6 P1.3).
+
+        Joins chunks → documents → bases so each hit carries kb_name and
+        doc_filename, which is what the global search UI needs to render
+        attribution. Returns dict-shaped rows (lighter than ORM for the
+        FusionService hot path).
+        """
+        if not keywords:
+            return []
+
+        rows = await self.session.execute(
+            select(
+                KnowledgeChunkORM,
+                KnowledgeBaseORM.name.label("kb_name"),
+                KnowledgeDocumentORM.filename.label("doc_filename"),
+            )
+            .join(
+                KnowledgeBaseORM,
+                KnowledgeBaseORM.id == KnowledgeChunkORM.kb_id,
+            )
+            .join(
+                KnowledgeDocumentORM,
+                KnowledgeDocumentORM.id == KnowledgeChunkORM.doc_id,
+            )
+        )
+
+        scored: list[tuple[int, KnowledgeChunkORM, str, str]] = []
+        for chunk, kb_name, doc_filename in rows.all():
+            score = sum(chunk.content.count(kw) for kw in keywords)
+            if score > 0:
+                scored.append((score, chunk, kb_name, doc_filename))
+        scored.sort(key=lambda x: (-x[0], x[1].created_at))
+
+        return [
+            {
+                "chunk": chunk,
+                "kb_id": chunk.kb_id,
+                "kb_name": kb_name,
+                "doc_id": chunk.doc_id,
+                "doc_filename": doc_filename,
+                "chunk_index": chunk.chunk_index,
+                "score": score,
+            }
+            for score, chunk, kb_name, doc_filename in scored[:top_k]
+        ]
+
     async def search_chunks_hybrid(
         self,
         kb_id: str,

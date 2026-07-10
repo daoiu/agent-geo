@@ -422,4 +422,66 @@ frontend/
 | 实施分阶段 | 一次 / 5 阶段 | 5 阶段 | 19 页一次性风险高 |
 | 公共组件库 | Radix / 自写 | 自写（轻量） | 避免新增依赖 |
 | 流程图样式 | 进度条 / 阶段卡 / Sankey | 阶段卡（StageCard） | 与"流程清晰"目标最匹配 |
+
+---
+
+## 16. P1.3 — 跨 KB 全局 hybrid 召回（已实施补节）
+
+> 状态：**已交付**（2026-07-11）。本节作为该变更的设计参考，对应实现见
+> - 后端：`backend/app/{api/knowledge.py, repositories/knowledge_repo.py, services/hybrid_search.py, models/knowledge.py}`
+> - 前端：`frontend/src/{api/client.ts, pages/KnowledgeList.tsx, types/v0.2.ts}`
+> - 测试：`backend/tests/test_knowledge_global_search.py` (7) + `frontend/src/pages/KnowledgeList.test.tsx` (6)
+
+### 16.1 触发问题
+
+`GET /knowledge/{kb_id}/chunks?q=...` 要求调用方**先选 KB** 才能检索；现实里用户往往**记不清**问题答案在哪一个 KB；这是一个**违反 RAG 召回语义**的设计——召回本应在「全语料池」上挑 top-K，限 kb_id 等于人为缩小召回域，recall@K 必然打折扣。
+
+### 16.2 目标
+
+- 提供 `GET /knowledge/search?q=&limit=` 不需要 kb_id
+- 后端做跨 KB 的 **hybrid 召回**：vector 循环每个 KB + 单次全局 keyword + RRF 融合
+- 每个 hit 自带 `kb_name + doc_filename`，让前端可直接渲染「来自《xxx》（KB: xxx）」的来源标注 — 这也是 RAG generation 阶段注入 prompt 时的引用依据
+- 失败降级：任意 KB 的 `VectorIndex.query` 抛异常 → 该 KB 的向量命中丢弃，keyword 路径不受影响
+
+### 16.3 API 形状
+
+```
+GET /api/knowledge/search?q=云吞%20马蹄&limit=10
+→ 200
+{
+  "query": "云吞 马蹄",
+  "hits": [
+    {
+      "kb_id": "fbac45ba-e2b0-49ec-a6e9-d455d5eb3fb5",
+      "kb_name": "北北云吞",
+      "doc_id": "9da3f86d-...",
+      "doc_filename": "北北云吞.md",
+      "chunk_id": "08f0302a-...",
+      "chunk_index": 0,
+      "content": "脆马蹄陈皮捶打大肉云吞，筒骨清汤...",
+      "score": 0.054,                      // RRF fused
+      "sources": ["keyword"]               // 或 ["vector"] 或两者皆有
+    }
+  ]
+}
+```
+
+### 16.4 设计决策
+
+| 决策 | 选项 | 选择 | 理由 |
+|---|---|---|---|
+| 是否新增 RAG 召回专用接口 | 加在 `/knowledge/{kb_id}/chunks` 同 route、加新 `/knowledge/search` 顶层路由 | **顶层 `search`** | 避免 {kb_id} 占位符冲突；用户视角「跨 KB」是一个新能力而非单 KB 检索的扩展 |
+| 召回融合方式 | 仅 BM25 / 仅向量 / hybrid（RRF） | **hybrid + RRF** | 已有的 v0.5 RRF fusion 在单 KB 上验证有效，扩到跨 KB 是相同代码路径 |
+| 跨库策略 | 新建「全域 collection」/ 每个 KB 循环查询 / 单表 LIKE | **每个 KB 循环 + 全局 LIKE** | 复用现有 `VectorIndex` 投资，零数据迁移；命中即可靠 RRF 排序 |
+| 路由注册顺序 | `/{kb_id}` 之前 / 之后 | **之前** | FastAPI/Starlette 按声明顺序匹配；literal `/search` 必须先注册 |
+| 前端触发 | input onChange / onSubmit / 仅 Enter | **仅 Enter + 按钮** | 防止 keystroke 频发打后端；意图明显 |
+| 结果 KB 名 banner | 折叠进 document 名 / 单独 badge | **单独 badge + 文件名** | RAG 引用常同时给出"文章标题"和"上下文源"，分开更清晰 |
+
+### 16.5 风险与未做
+
+| 风险 | 现状 | 后续 |
+|---|---|---|
+| 跨库 MMR 去冗余 | ❌ 未做 | v0.6+（re-rank） |
+| 命中 KB 高亮 + 拼接到 RAG prompt | ❌ 未做 | v0.6+（generation） |
+| 查询相似度门槛过滤 | ❌ 未做（一旦 score > 0 就返回） | v0.6+（提高 precision@K） |
 | Logo | 文字 / 极简 SVG | 极简 SVG | 品牌感 |

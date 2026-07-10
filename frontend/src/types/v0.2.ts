@@ -46,6 +46,24 @@ export interface KnowledgeDetail {
   documents: KnowledgeDocument[];
 }
 
+// v0.6 P1.3 — cross-KB hybrid recall (no kb_id required at API level)
+export interface GlobalKnowledgeHit {
+  kb_id: string;
+  kb_name: string;
+  doc_id: string;
+  doc_filename: string;
+  chunk_id: string;
+  chunk_index: number;
+  content: string;
+  score: number;
+  sources: ('vector' | 'keyword')[];
+}
+
+export interface GlobalKnowledgeSearchResult {
+  query: string;
+  hits: GlobalKnowledgeHit[];
+}
+
 export interface Task {
   id: string;
   name: string;

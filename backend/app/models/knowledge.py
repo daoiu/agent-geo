@@ -52,3 +52,28 @@ class KnowledgeSearchRequest(BaseModel):
 class KnowledgeSearchResult(BaseModel):
     query: str
     chunks: list[KnowledgeChunk]
+
+
+class GlobalKnowledgeHit(BaseModel):
+    """A single cross-KB hybrid search hit (v0.6 P1.3).
+
+    Surfaces the source KB + document name so the caller can render
+    attribution next to each retrieved chunk.
+    """
+
+    kb_id: str
+    kb_name: str
+    doc_id: str
+    doc_filename: str
+    chunk_id: str
+    chunk_index: int
+    content: str
+    score: float  # RRF fused score
+    sources: list[str]  # subset of {"vector", "keyword"}
+
+
+class GlobalKnowledgeSearchResult(BaseModel):
+    """Response shape for GET /knowledge/search (no kb_id required)."""
+
+    query: str
+    hits: list[GlobalKnowledgeHit]

@@ -6,6 +6,7 @@ import type {
 } from '@/types/diagnosis';
 import type {
   Article,
+  GlobalKnowledgeSearchResult,
   KnowledgeBase,
   KnowledgeDetail,
   Task,
@@ -102,6 +103,15 @@ export const api = {
     return request(`/knowledge/${kbId}/documents/${docId}`, {
       method: 'DELETE',
     });
+  },
+
+  // v0.6 P1.3 — cross-KB hybrid recall (no kb_id required)
+  searchKnowledgeGlobal(
+    q: string,
+    limit: number = 10,
+  ): Promise<GlobalKnowledgeSearchResult> {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    return request(`/knowledge/search?${params.toString()}`);
   },
 
   // ---- v0.2: Tasks ----

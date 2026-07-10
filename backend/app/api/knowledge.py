@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 import jieba  # noqa: F401  # re-exported via retriever.extract_search_keywords
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,8 @@ from app.api.diagnosis import get_session
 from app.core.config import get_settings
 from app.domain.knowledge.retriever import extract_search_keywords
 from app.models.knowledge import (
+    GlobalKnowledgeHit,
+    GlobalKnowledgeSearchResult,
     KnowledgeBase,
     KnowledgeBaseCreate,
     KnowledgeChunk,
@@ -24,6 +26,7 @@ from app.models.orm_v02 import (
     TaskORM,
 )
 from app.repositories.knowledge_repo import KnowledgeRepository
+from app.services.hybrid_search import HybridSearch
 from app.tasks.parser_worker import schedule_parse
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -35,7 +38,7 @@ _ALLOWED_EXTENSIONS = {"pdf", "docx", "md", "txt"}
 async def create_kb(
     body: KnowledgeBaseCreate,
     session: AsyncSession = Depends(get_session),
-) -> KnowledgeBaseORM:
+):
     repo = KnowledgeRepository(session)
     return await repo.create_kb(name=body.name, description=body.description)
 
@@ -43,9 +46,49 @@ async def create_kb(
 @router.get("", response_model=list[KnowledgeBase])
 async def list_kbs(
     session: AsyncSession = Depends(get_session),
-) -> list[KnowledgeBaseORM]:
+):
     repo = KnowledgeRepository(session)
     return await repo.list_kbs()
+
+
+# ---- v0.6 P1.3: cross-KB global search ----
+# Must be registered BEFORE ``/{kb_id}`` so the literal ``/search``
+# path doesn't get matched against the ``{kb_id}`` placeholder.
+@router.get("/search", response_model=GlobalKnowledgeSearchResult)
+async def global_search_kbs(
+    q: str = Query(..., min_length=1, max_length=200),
+    limit: int = Query(10, ge=1, le=50),
+) -> GlobalKnowledgeSearchResult:
+    """Hybrid (vector + keyword) retrieval across **all** knowledge bases.
+
+    No kb_id required — the user types a query, we RRF-fuse the per-KB
+    vector recall with a single global keyword recall, and return hits
+    attributed to their source KB + document.
+    """
+    q = q.strip()
+    if not q:
+        raise HTTPException(status_code=422, detail="q is required")
+    if not 1 <= limit <= 50:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 50")
+
+    fused = await HybridSearch().search_across_kbs(query=q, top_k=limit)
+    hits: list[GlobalKnowledgeHit] = []
+    for r in fused:
+        meta = r.get("metadata", {}) or {}
+        hits.append(
+            GlobalKnowledgeHit(
+                kb_id=meta.get("kb_id", ""),
+                kb_name=meta.get("kb_name", ""),
+                doc_id=meta.get("doc_id", ""),
+                doc_filename=meta.get("doc_filename", ""),
+                chunk_id=r["id"],
+                chunk_index=meta.get("chunk_index", 0),
+                content=r.get("content", ""),
+                score=float(r.get("_rrf_score", 0.0)),
+                sources=list(r.get("_sources", [])),
+            )
+        )
+    return GlobalKnowledgeSearchResult(query=q, hits=hits)
 
 
 @router.get("/{kb_id}")
@@ -149,7 +192,7 @@ async def upload_document(
     kb_id: str,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-) -> KnowledgeDocumentORM:
+):
     """Upload a document to a knowledge base. Triggers async parsing."""
     settings = get_settings()
     repo = KnowledgeRepository(session)
