@@ -4,6 +4,12 @@ import type {
   Report,
   ReportSummary,
 } from '@/types/diagnosis';
+import type {
+  Article,
+  KnowledgeBase,
+  KnowledgeDetail,
+  Task,
+} from '@/types/v0.2';
 
 const BASE = '/api';
 
@@ -45,6 +51,93 @@ export const api = {
 
   getPdfUrl(taskId: string): string {
     return `${BASE}/reports/${taskId}/pdf`;
+  },
+
+  // ---- v0.2: Knowledge Base ----
+  listKnowledgeBases(): Promise<KnowledgeBase[]> {
+    return request('/knowledge');
+  },
+  createKnowledgeBase(body: {
+    name: string;
+    description?: string;
+  }): Promise<KnowledgeBase> {
+    return request('/knowledge', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  getKnowledgeBase(kbId: string): Promise<KnowledgeDetail> {
+    return request(`/knowledge/${kbId}`);
+  },
+  deleteKnowledgeBase(kbId: string): Promise<void> {
+    return request(`/knowledge/${kbId}`, { method: 'DELETE' });
+  },
+  uploadDocument(kbId: string, file: File): Promise<KnowledgeDetail['documents'][number]> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetch(`${BASE}/knowledge/${kbId}/documents`, {
+      method: 'POST',
+      body: formData,
+    }).then(async (r) => {
+      if (!r.ok) {
+        const text = await r.text();
+        throw new ApiError(r.status, text || r.statusText);
+      }
+      return r.json();
+    });
+  },
+  deleteDocument(kbId: string, docId: string): Promise<void> {
+    return request(`/knowledge/${kbId}/documents/${docId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // ---- v0.2: Tasks ----
+  listTasks(): Promise<Task[]> {
+    return request('/tasks');
+  },
+  createTask(body: {
+    name: string;
+    kb_id: string;
+    brand?: string;
+    topic: string;
+    keywords?: string[];
+    article_count?: number;
+    style?: 'neutral' | 'professional' | 'casual';
+    target_length?: number;
+  }): Promise<Task> {
+    return request('/tasks', { method: 'POST', body: JSON.stringify(body) });
+  },
+  getTask(taskId: string): Promise<Task> {
+    return request(`/tasks/${taskId}`);
+  },
+  deleteTask(taskId: string): Promise<void> {
+    return request(`/tasks/${taskId}`, { method: 'DELETE' });
+  },
+  cancelTask(taskId: string): Promise<Task> {
+    return request(`/tasks/${taskId}/cancel`, { method: 'POST' });
+  },
+
+  // ---- v0.2: Reviews ----
+  listReviewQueue(
+    status: 'pending' | 'approved' | 'rejected' = 'pending',
+  ): Promise<Article[]> {
+    return request(`/reviews?status=${status}`);
+  },
+  getArticle(articleId: string): Promise<Article> {
+    return request(`/reviews/${articleId}`);
+  },
+  approveArticle(articleId: string, note?: string): Promise<Article> {
+    return request(`/reviews/${articleId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    });
+  },
+  rejectArticle(articleId: string, note: string): Promise<Article> {
+    return request(`/reviews/${articleId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
   },
 };
 
