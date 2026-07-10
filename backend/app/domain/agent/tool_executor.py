@@ -136,9 +136,44 @@ class ToolExecutor:
         }
 
     async def _execute_search_knowledge(self, args: SearchKnowledgeArgs) -> dict:
-        """搜索知识库。包装 v0.2 KnowledgeRepository。"""
-        # 完整实现在 Task 2.3
-        raise NotImplementedError
+        """搜索知识库。包装 v0.2 KnowledgeRepository。
+
+        chunk content 截断到 500 字符，避免 LLM 上下文爆炸。
+        """
+        from app.core.db import get_session_factory
+        from app.domain.knowledge.retriever import (
+            extract_search_keywords,
+            search_chunks,
+        )
+
+        keywords = extract_search_keywords(args.query)
+
+        factory = get_session_factory()
+        async with factory() as session:
+            chunks = await search_chunks(
+                session=session,
+                kb_id=args.kb_id,
+                keywords=keywords,
+                top_k=args.limit,
+            )
+
+        truncated: list[dict] = []
+        for c in chunks:
+            content = c.content[:500]
+            truncated.append({
+                "id": c.id,
+                "doc_id": c.doc_id,
+                "chunk_index": c.chunk_index,
+                "content": content,
+                "content_length": len(content),
+            })
+
+        return {
+            "kb_id": args.kb_id,
+            "query": args.query,
+            "chunks": truncated,
+            "total_found": len(chunks),
+        }
 
     async def _execute_generate_article(self, args: GenerateArticleArgs) -> dict:
         """生成文章（待确认）。

@@ -308,3 +308,113 @@ class TestDiagnoseBrand:
                     "official_url": "https://x.com",
                 })()
             )
+
+
+class TestSearchKnowledge:
+    @pytest.mark.asyncio
+    async def test_truncates_long_content_to_500_chars(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """chunk content > 500 字符被截断到 500。"""
+        from app.models.orm_v02 import KnowledgeChunkORM
+
+        long_content = "x" * 1000  # > 500
+
+        async def fake_search(*args, **kwargs):
+            return [
+                KnowledgeChunkORM(
+                    id="c1", doc_id="d1", kb_id="kb1", chunk_index=0,
+                    content=long_content, content_length=1000,
+                )
+            ]
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        result = await executor._execute_search_knowledge(
+            type("Args", (), {"kb_id": "kb1", "query": "test", "limit": 5})()
+        )
+
+        assert result["kb_id"] == "kb1"
+        assert result["query"] == "test"
+        assert result["total_found"] == 1
+        assert len(result["chunks"]) == 1
+        assert len(result["chunks"][0]["content"]) == 500  # 截断
+        assert result["chunks"][0]["content_length"] == 500  # 反映截断后长度
+
+    @pytest.mark.asyncio
+    async def test_keeps_short_content(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """chunk content ≤ 500 字符完整保留。"""
+        from app.models.orm_v02 import KnowledgeChunkORM
+
+        short_content = "短内容只有 30 个字符"
+
+        async def fake_search(*args, **kwargs):
+            return [
+                KnowledgeChunkORM(
+                    id="c1", doc_id="d1", kb_id="kb1", chunk_index=0,
+                    content=short_content, content_length=len(short_content),
+                )
+            ]
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        result = await executor._execute_search_knowledge(
+            type("Args", (), {"kb_id": "kb1", "query": "test", "limit": 5})()
+        )
+
+        assert len(result["chunks"]) == 1
+        assert result["chunks"][0]["content"] == short_content
+        assert result["chunks"][0]["content_length"] == len(short_content)
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_chunks(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """没有匹配 chunk 时返回空列表。"""
+        async def fake_search(*args, **kwargs):
+            return []
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        result = await executor._execute_search_knowledge(
+            type("Args", (), {"kb_id": "kb1", "query": "无匹配", "limit": 5})()
+        )
+
+        assert result["chunks"] == []
+        assert result["total_found"] == 0
+
+    @pytest.mark.asyncio
+    async def test_chunk_carries_id_and_index(
+        self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """返回的 chunk 包含 id / doc_id / chunk_index 字段。"""
+        from app.models.orm_v02 import KnowledgeChunkORM
+
+        async def fake_search(*args, **kwargs):
+            return [
+                KnowledgeChunkORM(
+                    id="chunk-abc", doc_id="doc-xyz", kb_id="kb1",
+                    chunk_index=3, content="some content", content_length=12,
+                )
+            ]
+
+        monkeypatch.setattr(
+            "app.domain.knowledge.retriever.search_chunks", fake_search
+        )
+
+        result = await executor._execute_search_knowledge(
+            type("Args", (), {"kb_id": "kb1", "query": "test", "limit": 5})()
+        )
+
+        c = result["chunks"][0]
+        assert c["id"] == "chunk-abc"
+        assert c["doc_id"] == "doc-xyz"
+        assert c["chunk_index"] == 3
