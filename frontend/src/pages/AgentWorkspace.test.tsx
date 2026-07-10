@@ -74,4 +74,24 @@ describe('AgentWorkspace (chat pane only)', () => {
     expect(screen.queryByRole('navigation', { name: /主导航/ })).toBeNull();
     expect(screen.queryByRole('complementary', { name: /会话历史/ })).toBeNull();
   });
+
+  it('first send in /agent creates a new session with the typed text as title', async () => {
+    const user = (await import('@testing-library/user-event')).default;
+    renderWithRouter(<AgentWorkspace />, { initialEntries: ['/agent'] });
+
+    const ta = screen.getByPlaceholderText(/给 GEO 助手/) as HTMLTextAreaElement;
+    await user.click(ta);
+    await user.keyboard('帮我诊断小米');
+
+    const btn = screen.getByRole('button', { name: '发送' });
+    expect(btn).not.toBeDisabled();
+    await user.click(btn);
+
+    // Bug fix assertion: pressing Send in /agent must no longer be a no-op.
+    // Previously useAgentSession.send() early-returned on !sessionId and the
+    // user message was silently lost. The flow now calls createAgentSession
+    // first and seeds the cache with the user message before navigating.
+    expect(mockedApi.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(mockedApi.createAgentSession).toHaveBeenCalledWith('帮我诊断小米');
+  });
 });

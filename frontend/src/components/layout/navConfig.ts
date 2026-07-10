@@ -2,11 +2,16 @@
  * navItems — primary navigation config per v0.6 spec §3.2.
  * Lives in its own file so CommandPalette and SideNav can both import
  * without pulling App.tsx (which embeds the router).
+ *
+ * v0.6 P1.2 ordering: home → 智能助手 → 诊断 → 知识库 → 生成 → 发布
+ * → 监测 → 设置. The agent pane is the conversational surface and
+ * deserves the first non-home slot; diagnosis stays where it is.
  */
 import type { NavItem } from './SideNav';
 
 export const navItems: NavItem[] = [
   { key: 'home', label: '🏠 仪表盘', to: '/' },
+  { key: 'agent', label: '🤖 智能助手', to: '/agent' },
   {
     key: 'diag',
     label: '🔍 诊断',
@@ -14,7 +19,6 @@ export const navItems: NavItem[] = [
     children: [
       { key: 'diag-new', label: '新建诊断', to: '/new' },
       { key: 'diag-history', label: '历史报告', to: '/reports' },
-      { key: 'diag-agent', label: '诊断智能体', to: '/agent/diagnose' },
     ],
   },
   {
@@ -52,6 +56,5 @@ export const navItems: NavItem[] = [
       { key: 'mon-notif', label: '阈值通知', to: '/notifications' },
     ],
   },
-  { key: 'agent', label: '🤖 智能助手', to: '/agent' },
   { key: 'settings', label: '⚙️ 设置', to: '/settings' },
 ];

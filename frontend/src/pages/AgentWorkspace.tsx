@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import type { AgentEvent, AgentMessage, AgentSessionDetail } from '@/types/v0.4';
 
-import { api } from '@/api/client';
+import { api, sendAgentMessageStream } from '@/api/client';
 import { useAgentSession } from '@/hooks/useAgentSession';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ToolCallCard } from '@/components/ToolCallCard';
@@ -11,9 +12,8 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
-// Composer (textarea fills the box; send button is an absolute pill in the
-// bottom-right corner — when the input has content the *whole* composer
-// lights up in primary, not just a half-height strip).
+// Composer — fixed-height card; the whole box lights up when input is non-empty
+// (not just the round send button).
 // ---------------------------------------------------------------------------
 
 function Composer({
@@ -69,7 +69,7 @@ function Composer({
         rows={1}
         placeholder="给 GEO 助手发送消息（Enter 发送，Shift+Enter 换行）"
         aria-label="消息输入"
-        disabled={Boolean(disabled) && false /* always typeable; send has its own guard */}
+        disabled={false}
         className="block w-full resize-none rounded-xl bg-transparent px-4 pb-12 pt-3 text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
       />
       <button
@@ -91,7 +91,7 @@ function Composer({
 }
 
 // ---------------------------------------------------------------------------
-// Empty state (used by /agent without a session id)
+// Empty state
 // ---------------------------------------------------------------------------
 
 function EmptyState() {
@@ -108,10 +108,77 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
-// ChatPane — the right pane of LayoutShell's asideLeft slot
+// First-send SSE — runs against a brand-new session id and patches the cache
+// the same way useAgentSession does, so subsequent renders read the same
+// in-progress conversation from queryClient.
 // ---------------------------------------------------------------------------
 
-function ChatPane() {
+async function streamFirstSend(
+  qc: ReturnType<typeof useQueryClient>,
+  newSessionId: string,
+  text: string,
+): Promise<void> {
+  for await (const event of sendAgentMessageStream(newSessionId, text)) {
+    applyAgentEvent(qc, newSessionId, event);
+  }
+  qc.invalidateQueries({ queryKey: ['agent-session', newSessionId] });
+}
+
+function applyAgentEvent(
+  qc: ReturnType<typeof useQueryClient>,
+  sessionId: string,
+  event: AgentEvent,
+): void {
+  switch (event.event) {
+    case 'assistant_message':
+      if (event.content) {
+        qc.setQueryData<AgentSessionDetail>(['agent-session', sessionId], (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            messages: [
+              ...old.messages,
+              {
+                id: `ast-${Date.now()}-${Math.random()}`,
+                session_id: sessionId,
+                role: 'assistant',
+                content: event.content,
+                tool_calls: null,
+                tool_call_id: null,
+                pending_confirmation: false,
+                created_at: new Date().toISOString(),
+              } as AgentMessage,
+            ],
+          };
+        });
+      }
+      break;
+    case 'tool_call_start':
+    case 'tool_call_result':
+    case 'human_confirmation_required':
+    case 'turn_complete':
+    case 'max_iterations_reached':
+    case 'error':
+      // first-send path only needs the assistant_message branch for visual
+      // rendering; tool call and confirmation are surfaced via a follow-up
+      // mount once the URL changes to /agent/:id.
+      break;
+    default: {
+      // Exhaustiveness check — TS knows we covered every AgentEvent variant
+      const _exhaustive: never = event;
+      void _exhaustive;
+      break;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ChatPane — owns the page; first-send auto-creates the session.
+// ---------------------------------------------------------------------------
+
+export default function AgentWorkspace() {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const { sessionId = '' } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
   const prefill = searchParams.get('prefill') ?? '';
@@ -129,12 +196,73 @@ function ChatPane() {
     isEmpty,
   } = useAgentSession(sessionId || undefined);
 
-  // Prefill from query string once (only if composer is empty)
-  const prefillRef = useRef(false);
+  // One-shot guard: stream against the new session exactly once per click.
+  // Without this, React 18 StrictMode + a same-render dep change on
+  // sessionId from '' to <new-id> can double-invoke the auto-fire path.
+  const inFlightRef = useRef(false);
+
+  const create = useMutation({
+    mutationFn: (title?: string) => api.createAgentSession(title),
+  });
+
+  async function onSend() {
+    if (inFlightRef.current) return;
+    const text = input.trim();
+    if (!text) return;
+    if (loading || pending) return;
+
+    if (sessionId) {
+      // Subsequent sends — normal path through useAgentSession.
+      void send();
+      return;
+    }
+
+    // First-send in /agent — create, seed cache, stream inline, then nav.
+    // No setTimeout / effect / state machine so we never fire twice.
+    inFlightRef.current = true;
+    try {
+      const title = text.slice(0, 30);
+      const newSession = await create.mutateAsync(title);
+      const now = new Date().toISOString();
+      const userMsg: AgentMessage = {
+        id: `usr-${now}`,
+        session_id: newSession.id,
+        role: 'user',
+        content: text,
+        tool_calls: null,
+        tool_call_id: null,
+        pending_confirmation: false,
+        created_at: now,
+      };
+
+      // Seed the cache *with* the user message so the upcoming /agent/:id
+      // mount renders the user bubble without a flicker.
+      qc.setQueryData(['agent-session', newSession.id], {
+        ...newSession,
+        messages: [userMsg],
+      });
+      qc.invalidateQueries({ queryKey: ['agent-sessions'] });
+
+      // Fire the SSE stream against the new id; this writes assistant
+      // messages into the same cache. We deliberately do NOT await the full
+      // stream before navigating — we kick it off and let the URL change
+      // happen so the user sees the rest of the conversation.
+      void streamFirstSend(qc, newSession.id, text).catch((err) => {
+        console.error('SSE error:', err);
+      });
+
+      // Clear the composer locally and head to the new conversation.
+      setInput('');
+      navigate(`/agent/${newSession.id}`, { replace: true });
+    } finally {
+      inFlightRef.current = false;
+    }
+  }
+
+  // One-shot fill: prefill query string into the composer on /agent (only).
   useEffect(() => {
-    if (prefill && !prefillRef.current && input === '') {
+    if (prefill && !sessionId && input === '') {
       setInput(prefill);
-      prefillRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill]);
@@ -178,49 +306,17 @@ function ChatPane() {
           <Composer
             input={input}
             setInput={setInput}
-            onSend={send}
+            onSend={onSend}
             loading={loading}
-            disabled={Boolean(pending)}
+            disabled={Boolean(pending) || inFlightRef.current}
           />
           {!sessionId && (
             <p className="mt-2 text-center text-xs text-muted-foreground">
-              按「开启新对话」开始第一条消息
+              按「发送」自动创建新对话并发送
             </p>
           )}
         </div>
       </footer>
     </section>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Default export — wraps the chat pane with the prefill auto-create flow.
-// When the Dashboard's "立即对话 →" button includes ?prefill=…, this page
-// creates a brand-new session the moment it mounts on /agent without a
-// sessionId, then navigates to /agent/:newId.
-// ---------------------------------------------------------------------------
-
-export default function AgentWorkspace() {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const { sessionId } = useParams<{ sessionId: string }>();
-
-  const create = useMutation({
-    mutationFn: (title?: string) => api.createAgentSession(title),
-    onSuccess: (s) => {
-      qc.invalidateQueries({ queryKey: ['agent-sessions'] });
-      navigate(`/agent/${s.id}`, { replace: true });
-    },
-  });
-
-  const [searchParams] = useSearchParams();
-  const prefill = searchParams.get('prefill') ?? '';
-  useEffect(() => {
-    if (!sessionId && prefill && !create.isPending && !create.data) {
-      create.mutate(prefill);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefill, sessionId]);
-
-  return <ChatPane />;
 }

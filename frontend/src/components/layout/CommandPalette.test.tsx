@@ -43,4 +43,22 @@ describe('CommandPalette ⌘K', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
     expect(onClose).toHaveBeenCalledWith(false);
   });
+
+  it('does NOT include 诊断智能体 (sub-menu entry removed in P1.2 reorder)', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <CommandPalette open={true} onOpenChange={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(/诊断智能体/)).toBeNull();
+  });
+
+  it('智能助手 lists /agent (re-ordered to slot 2)', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <CommandPalette open={true} onOpenChange={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('/agent')).toBeInTheDocument();
+  });
 });
