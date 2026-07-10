@@ -63,6 +63,12 @@ async def db_session(temp_db: str, monkeypatch) -> AsyncGenerator[AsyncSession, 
         await conn.run_sync(Base.metadata.create_all)
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # Replace the global _session_factory so code that calls get_session_factory()
+    # (e.g. monitor_service, publish_worker) uses our test engine.
+    import app.core.db
+    monkeypatch.setattr(app.core.db, "_session_factory", session_factory, raising=False)
+
     async with session_factory() as session:
         yield session
 

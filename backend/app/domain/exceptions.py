@@ -88,3 +88,7 @@ class ReviewError(DomainError):
 
 class PublishError(DomainError):
     """WordPress publish operation failed."""
+
+
+class NotificationError(DomainError):
+    """Email / notification delivery failed."""

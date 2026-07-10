@@ -84,6 +84,7 @@ class PublishService:
             # Trigger success notification (notification_service added in Phase 4).
             # Wrapped in try/except so missing module / SMTP failure never blocks publish.
             try:
+                recipient = self.settings.notify_email_default or self.settings.smtp_from
                 from app.domain.notification.notification_service import (
                     notify_publish_success,
                 )
@@ -91,7 +92,7 @@ class PublishService:
                     title=title,
                     remote_url=result["link"],
                     site_name=config.name,
-                    recipient=self.settings.smtp_from or "",
+                    recipient=recipient,
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning("notification_failed", error=str(e))
