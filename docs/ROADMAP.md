@@ -163,12 +163,14 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (Agent) →  v0
 **前置依赖**：v0.1 + v0.2 + v0.3 完成 ✅
 
 **实施完成情况**：
-- 后端 336 个测试通过（v0.1+v0.2+v0.3+v0.4 + E2E）
+- 后端 387 个测试通过（v0.1+v0.2+v0.3+v0.4 + E2E + SSRF）
 - 前端 tsc 编译通过，0 lint error
+- 18 个实施 commit + 1 个 review 修复 commit + 1 个 SSRF 文件（untracked）
 - 设计文档：`docs/superpowers/specs/2026-07-10-geo-agent-v0.4-design.md`
 - 实施计划：`docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.4.md`（22 个 task）
 - 手动验证清单：`docs/MANUAL_VERIFICATION_V0.4.md`（8 个场景）
 - 启动话术：`docs/HANDOFF_V0.4.md`
+- Code review 修复：generate_article_confirmed 真正实现、tool_call_id 匹配、后端 confirm 去重、前端 approve 走 SSE
 
 **ROADMAP 调整**：
 - 原 v0.4（多用户）→ 推到 **v1.0**
@@ -303,5 +305,17 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (Agent) →  v0
 - ✅ v0.2 设计 + 实施完成
 - ✅ v0.3 设计 + 实施完成
 - ✅ v0.4 设计 + 实施完成（**方向变更为自主决策 Agent**）
-- 🎯 v0.5：等待 v0.4 验证后启动（行业基准 / 竞品对比）
+- 🎯 v0.5：等待 v0.4 手动验证 8 个场景通过后启动（行业基准 / 竞品对比 + 向量检索）
 - 💤 v0.6+：远期规划
+
+## v0.4 实施交付清单（验收用）
+
+| 类别 | 内容 |
+|---|---|
+| **后端新增模块** | `app/domain/agent/{tools,tool_executor,react_loop,session_manager,prompts}.py` + `app/repositories/agent_repo.py` + `app/api/{agent_sessions,agent_chat}.py` + `app/models/{agent,orm_v04}.py` + `app/domain/security/ssrf.py` |
+| **后端修改** | `llm_client.py`（加 `chat_with_tools` + `simple_chat`）+ `exceptions.py`（加 `HumanConfirmationRequired`）+ `main.py`（注册 2 个 router）+ `conftest.py`（注册 v0.4 ORM） |
+| **后端测试** | 17 个测试文件，~110 个 v0.4 测试（tools / executor / react_loop / session_manager / repo / api / E2E / SSRF） |
+| **前端新增** | `types/v0.4.ts` + `components/{ChatMessage,ToolCallCard,ConfirmDialog}.tsx` + `pages/{AgentSessionList,AgentChat}.tsx` |
+| **前端修改** | `App.tsx`（加 2 个路由 + 导航）+ `api/client.ts`（加 6 个 API 方法 + 2 个 SSE parser） |
+| **文档** | spec + plan + 手动验证清单（8 场景） + 启动话术 + ROADMAP 更新 |
+| **Commits** | 18 个 v0.4 + 1 个 review 修复 |
