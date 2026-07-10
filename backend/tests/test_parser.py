@@ -3,6 +3,7 @@ import pytest
 
 from app.domain.knowledge.parser import (
     DocumentParseError,
+    parse_docx,
     parse_md,
     parse_pdf,
     parse_txt,
@@ -48,3 +49,34 @@ class TestPdfParser:
         bad.write_bytes(b"not a pdf")
         with pytest.raises(DocumentParseError):
             parse_pdf(str(bad))
+
+
+class TestDocxParser:
+    def test_parses_docx(self) -> None:
+        fixture = PROJECT_ROOT / "tests" / "fixtures" / "sample.docx"
+        if not fixture.exists():
+            pytest.skip("sample.docx not yet generated")
+        text = parse_docx(str(fixture))
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    def test_missing_docx_raises(self, tmp_path) -> None:
+        with pytest.raises(DocumentParseError):
+            parse_docx(str(tmp_path / "missing.docx"))
+
+
+def _ensure_sample_docx() -> None:
+    """Generate sample.docx if missing. Used by manual setup."""
+    import docx
+    out = PROJECT_ROOT / "tests" / "fixtures" / "sample.docx"
+    if out.exists():
+        return
+    out.parent.mkdir(parents=True, exist_ok=True)
+    doc = docx.Document()
+    doc.add_heading("DOCX 测试文档", level=1)
+    doc.add_paragraph("第一段：介绍产品。")
+    doc.add_paragraph("第二段：详细介绍。")
+    doc.add_heading("子标题", level=2)
+    doc.add_paragraph("子标题下的内容。")
+    doc.save(str(out))
+    print(f"created {out}")

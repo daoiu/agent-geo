@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import docx  # python-docx
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
@@ -70,6 +71,39 @@ def parse_pdf(path: str) -> str:
         raise DocumentParseError(
             doc_id=path, file_path=path, reason=f"corrupted PDF: {e}"
         ) from e
+    except Exception as e:  # noqa: BLE001
+        raise DocumentParseError(
+            doc_id=path, file_path=path, reason=str(e)
+        ) from e
+
+
+def parse_docx(path: str) -> str:
+    """Extract text from a .docx file.
+
+    Concatenates paragraphs (including those inside tables) with double newlines.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise DocumentParseError(doc_id=path, file_path=path, reason="file not found")
+    try:
+        document = docx.Document(str(p))
+        parts: list[str] = []
+
+        # Body paragraphs
+        for para in document.paragraphs:
+            if para.text.strip():
+                parts.append(para.text)
+
+        # Tables (flattened: each row is one chunk separated by newlines)
+        for table in document.tables:
+            for row in table.rows:
+                row_text = " | ".join(
+                    cell.text.strip() for cell in row.cells if cell.text.strip()
+                )
+                if row_text:
+                    parts.append(row_text)
+
+        return "\n\n".join(parts)
     except Exception as e:  # noqa: BLE001
         raise DocumentParseError(
             doc_id=path, file_path=path, reason=str(e)
