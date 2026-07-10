@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import NewDiagnosis from '@/pages/NewDiagnosis';
+import Settings from '@/pages/Settings';
 import DiagnosisStatus from '@/pages/DiagnosisStatus';
 import ReportView from '@/pages/ReportView';
 import ReportList from '@/pages/ReportList';
@@ -157,16 +158,8 @@ function LayoutShellRouter() {
         <Route path="/notifications" element={<NotificationSettings />} />
         <Route path="/agent" element={<AgentSessionList />} />
         <Route path="/agent/:sessionId" element={<AgentChat />} />
-        {/* Placeholder for /settings — implemented in P1+ */}
-        <Route
-          path="/settings"
-          element={
-            <div className="rounded-lg border border-dashed border-border bg-bg p-12 text-center text-fg-muted">
-              <h2 className="mb-2 text-lg font-semibold text-fg">设置</h2>
-              <p>v0.6 P1+ 将上线统一设置面板</p>
-            </div>
-          }
-        />
+        {/* Real settings page — see Settings.tsx */}
+        <Route path="/settings" element={<Settings />} />
         {/* Catch-all */}
         <Route
           path="*"
