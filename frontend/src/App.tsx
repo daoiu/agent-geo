@@ -18,6 +18,8 @@ import MonitorList from '@/pages/MonitorList';
 import MonitorDetail from '@/pages/MonitorDetail';
 import NewMonitor from '@/pages/NewMonitor';
 import NotificationSettings from '@/pages/NotificationSettings';
+import AgentSessionList from '@/pages/AgentSessionList';
+import AgentChat from '@/pages/AgentChat';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +59,9 @@ function Header() {
           <Link to="/notifications" className="text-gray-600 hover:text-gray-900">
             通知
           </Link>
+          <Link to="/agent" className="text-gray-600 hover:text-gray-900">
+            Agent
+          </Link>
           <Link
             to="/new"
             className="px-3 py-1 bg-blue-600 text-white rounded-md"
@@ -92,6 +97,8 @@ export default function App() {
           <Route path="/monitors/new" element={<NewMonitor />} />
           <Route path="/monitors/:monitorId" element={<MonitorDetail />} />
           <Route path="/notifications" element={<NotificationSettings />} />
+          <Route path="/agent" element={<AgentSessionList />} />
+          <Route path="/agent/:sessionId" element={<AgentChat />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

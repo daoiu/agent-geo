@@ -17,6 +17,11 @@ import type {
   PublisherConfig,
   TrendData,
 } from '@/types/v0.3';
+import type {
+  AgentEvent,
+  AgentSession,
+  AgentSessionDetail,
+} from '@/types/v0.4';
 
 const BASE = '/api';
 
@@ -244,6 +249,141 @@ export const api = {
   sendTestEmail(to: string): Promise<{ ok: boolean; error?: string }> {
     return request('/notifications/test', { method: 'POST', body: JSON.stringify({ to }) });
   },
+
+  // ---- v0.4: Agent ----
+  listAgentSessions(): Promise<AgentSession[]> {
+    return request('/agent/sessions');
+  },
+  createAgentSession(title?: string): Promise<AgentSession> {
+    return request('/agent/sessions', {
+      method: 'POST',
+      body: JSON.stringify(title ? { title } : {}),
+    });
+  },
+  getAgentSession(id: string): Promise<AgentSessionDetail> {
+    return request(`/agent/sessions/${id}`);
+  },
+  deleteAgentSession(id: string): Promise<void> {
+    return request(`/agent/sessions/${id}`, { method: 'DELETE' });
+  },
+  updateAgentSessionTitle(id: string, title: string): Promise<AgentSession> {
+    return request(`/agent/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    });
+  },
+  confirmAgentAction(
+    sessionId: string,
+    messageId: string,
+    approved: boolean,
+  ): Promise<{ status: string; message_id: string }> {
+    return request(
+      `/agent/sessions/${sessionId}/messages/${messageId}/confirm`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ approved }),
+      },
+    );
+  },
 };
+
+// SSE 流：fetch + ReadableStream 消费服务端 SSE
+export async function* sendAgentMessageStream(
+  sessionId: string,
+  content: string,
+): AsyncGenerator<AgentEvent> {
+  const response = await fetch(
+    `${BASE}/agent/sessions/${sessionId}/messages`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    },
+  );
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { events, remainder } = parseSSE(buffer);
+    buffer = remainder;
+    for (const evt of events) yield evt;
+  }
+}
+
+export async function* confirmAgentActionStream(
+  sessionId: string,
+  messageId: string,
+  approved: boolean,
+): AsyncGenerator<AgentEvent> {
+  const response = await fetch(
+    `${BASE}/agent/sessions/${sessionId}/messages/${messageId}/confirm`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved }),
+    },
+  );
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { events, remainder } = parseSSE(buffer);
+    buffer = remainder;
+    for (const evt of events) yield evt;
+  }
+}
+
+interface ParsedSSE {
+  events: AgentEvent[];
+  remainder: string;
+}
+
+function parseSSE(buffer: string): ParsedSSE {
+  const events: AgentEvent[] = [];
+  const lines = buffer.split('\n');
+  let remainder = '';
+  let currentEvent: string | null = null;
+  let currentData: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('event: ')) {
+      currentEvent = line.slice(7).trim();
+    } else if (line.startsWith('data: ')) {
+      currentData.push(line.slice(6).trim());
+    } else if (line === '' && currentEvent && currentData.length > 0) {
+      try {
+        const data = JSON.parse(currentData.join('\n'));
+        events.push({ event: currentEvent, ...data } as AgentEvent);
+      } catch {
+        // 忽略格式错误的 event
+      }
+      currentEvent = null;
+      currentData = [];
+    } else if (i === lines.length - 1 && line !== '') {
+      // 最后一行不完整，留到下次
+      remainder = line;
+    }
+  }
+  return { events, remainder };
+}
 
 export { ApiError };
