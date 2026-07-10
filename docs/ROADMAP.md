@@ -78,7 +78,7 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  �
 
 ---
 
-## v0.3 — 完整闭环（自动发布 + 监测）
+## v0.3 — 完整闭环（自动发布 + 监测）✅ 设计 + 实施完成
 
 **目标**：从"诊断"到"改写"到"发布"到"监测效果"的全链路自动化
 
@@ -86,32 +86,46 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  �
 
 | 模块 | 描述 |
 |---|---|
-| **WordPress 发布器** | 接入 WordPress REST API，自动发布改写后的内容 |
-| **公众号助手** | 接入微信公众号 API，发布草稿到素材库（人工最终确认） |
-| **改写效果监测** | 发布后定期（每天/每周）抓 AI 答案，监测提及率变化 |
-| **变化趋势图** | 同一品牌多次诊断的趋势对比（柱状图/折线图） |
-| **Slack / 邮件通知** | 监测到显著变化时主动通知 |
+| **WordPress 发布器** | 接入 WordPress REST API，自动发布改写后的内容（Application Password 认证） |
+| ~~**公众号助手**~~ | 推到 v0.4+（plan 范围内 v0.3 不做） |
+| **改写效果监测** | 发布后定期（每天/每周/每小时）抓 AI 答案，监测提及率变化 |
+| **变化趋势图** | 同一监测任务多次快照的折线图（Recharts） |
+| **邮件通知** | 监测到显著变化（默认 15% 阈值）+ 发布成功/失败时主动通知 |
 
 **架构变化**：
-- 新增 `app/connectors/` 目录（wordpress.py、wechat.py 等）
-- 新增 `app/services/monitor.py`（定期调度 + AI 答案抓取）
-- 前端新增"监测看板"页面
-- 引入 Celery + Redis 替代 asyncio 任务（需要定时任务）
-- 引入 Playwright 渲染 SPA 页面（v0.6 内容提前）
+- 新增 4 张表：`publisher_configs` / `publish_jobs` / `monitor_tasks` / `mention_snapshots`
+- 新增 `app/domain/publisher/`（wordpress.py + publisher_service.py）
+- 新增 `app/domain/monitor/`（scheduler.py + monitor_service.py）
+- 新增 `app/domain/notification/`（email_sender.py + notification_service.py）
+- 新增 `app/domain/security/`（encryption.py — Fernet 加密 app_password）
+- 新增 `app/tasks/publish_worker.py`（共享 `_EXEC_LOCK` with v0.1/v0.2）
+- 新增 `app/api/publishers.py` / `monitors.py` / `notifications.py`
+- 调度：APScheduler（单进程内，lifespan 启动时从 DB 恢复 active 监测）
+- 凭证加密：Fernet（`ENCRYPTION_KEY` from .env）
+- 通知：aiosmtplib (SMTP)
+- **未引入**：Celery + Redis、Playwright（保持单进程 + 极简部署）
 
 **数据模型新增**：
-- `PublishJob` 表：发布任务、平台、状态、回执
-- `MentionSnapshot` 表：每次监测的提及率快照
-- `Connector` 表：第三方平台凭证
+- `publisher_configs`：WordPress 站点凭证（app_password Fernet 加密后存储）
+- `publish_jobs`：发布任务 + 状态机 pending/running/success/failed/cancelled
+- `monitor_tasks`：监测任务（品牌/行业/问题/频率/阈值）
+- `mention_snapshots`：每次监测的提及率快照
 
-**前置依赖**：v0.1 + v0.2 完成
+**前置依赖**：v0.1 + v0.2 完成 ✅
 
-**估算工作量**：4-6 周
+**实施完成情况**：
+- 后端 225 个测试通过（v0.1+v0.2+v0.3 + E2E）
+- 前端 tsc 编译通过，0 lint error
+- 实施计划：`docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.3.md`（22 个 task）
+- 设计文档：`docs/superpowers/specs/2026-07-10-geo-agent-v0.3-design.md`
+- 手动验证清单：`docs/MANUAL_VERIFICATION_V0.3.md`（11 个场景）
+- 启动话术：`docs/HANDOFF_V0.3.md`
 
-**关键风险**：
-- 第三方平台 API 稳定性（特别是微信公众号）
-- LLM 答案的非确定性（监测曲线会有抖动，需要做平滑）
-- 合规风险（自动发布涉及内容真实性，3·15 红线）
+**不再做**（推到 v0.4+）：
+- 微信公众号发布（v0.4+）
+- Slack / 企业微信 / 钉钉通知（只邮件）
+- Playwright 渲染 SPA 页面（v0.6）
+- 多用户系统 / 鉴权（v0.4）
 
 ---
 
