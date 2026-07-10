@@ -5,9 +5,9 @@
 ## 总体演进思路
 
 ```
-v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  →  v0.5 (行业)  →  v0.6 (SPA)
+v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (Agent) →  v0.5 (行业)  →  v0.6 (SPA)
    │              │              │               │                │              │
-  看清问题      给出方案        自动执行         多人协作         行业对标       完整覆盖
+  看清问题      给出方案        自动执行       自然语言入口      行业对标       完整覆盖
 ```
 
 每完成一个版本，下个版本开始前要：
@@ -129,39 +129,62 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  �
 
 ---
 
-## v0.4 — 多用户 + 权限 + 历史趋势
+## v0.4 — 自主决策 Agent（方向变更）✅ 设计 + 实施完成
 
-**目标**：从"个人工具"变成"团队/企业工具"
+> **方向变更**：原 ROADMAP v0.4 是"多用户 + 权限"，用户重新定位为"自主决策 Agent"。多用户系统推到 **v1.0**。
+
+**目标**：在 v0.1-v0.3 之上加一层自然语言入口，用户用 chat 跟 agent 对话，agent 自主决定调哪些工具、按什么顺序、用什么参数。
 
 **核心新增能力**：
 
 | 模块 | 描述 |
 |---|---|
-| **用户系统** | 注册、登录、密码重置、邮箱验证 |
-| **团队/组织** | 多用户归属同一组织，共享报告 |
-| **权限模型** | Owner / Admin / Editor / Viewer |
-| **报告归属** | 报告属于组织而非个人 |
-| **API 限额** | 按组织配额（避免被滥用） |
-| **审计日志** | 谁在什么时候看了什么报告 |
+| **Chat 入口** | 用户用自然语言说"帮我提升小米 GEO 可见度"，agent 自主决策 |
+| **ReAct 推理循环** | 自写循环（不引 LangGraph），MAX_REACT_ITERATIONS = 5 防无限循环 |
+| **3 工具** | `diagnose_brand`（读 v0.1）+ `search_knowledge`（读 v0.2，chunk 截断 500 字）+ `generate_article`（写，仅预览不落库 v0.2） |
+| **Human-in-the-loop** | 写类工具（generate_article）需用户确认 |
+| **断点续跑** | confirm 端点 approved=True 后从断点自动续跑（不是 MVP） |
+| **多 session + 历史** | 所有会话持久化到 SQLite，可跨刷新恢复 |
+| **SSE 流式 UI** | FastAPI `StreamingResponse` + 前端 `fetch + ReadableStream` |
 
 **架构变化**：
-- 新增 `app/core/auth.py`（JWT + OAuth）
-- 新增 `app/models/user.py`、`app/models/org.py`
-- 新增 `app/api/auth.py`
-- 前端新增登录/注册/团队管理页
-- 数据库升级到 PostgreSQL（用户量增长）
-- 引入 Redis 做 session 缓存
+- 新增 2 张表：`agent_sessions` / `agent_messages`
+- 新增 `app/domain/agent/`（tools / tool_executor / react_loop / session_manager / prompts）
+- 新增 `app/repositories/agent_repo.py`（session + message CRUD）
+- 新增 `app/api/agent_sessions.py`（5 个 CRUD 端点）+ `app/api/agent_chat.py`（SSE 端点 + 确认端点）
+- LLMClient 扩展：`chat_with_tools()`（Function Calling）+ `simple_chat()`（自动生成标题）
+- 前端新增 5 个组件（ChatMessage / ToolCallCard / ConfirmDialog / ChatInput / AgentChat）+ Session 列表页
+- **不引入**：LangChain / LangGraph / Claude SDK / MCP SDK（保持 OpenAI SDK + 自己写 ReAct）
 
 **数据模型新增**：
-- `User`, `Organization`, `Membership`, `AuditLog` 表
+- `agent_sessions`（id / title / created_at / updated_at）
+- `agent_messages`（id / session_id / role / content / tool_calls / tool_call_id / pending_confirmation / created_at）
 
-**前置依赖**：v0.1 + v0.2 + v0.3 完成
+**前置依赖**：v0.1 + v0.2 + v0.3 完成 ✅
 
-**估算工作量**：3-4 周
+**实施完成情况**：
+- 后端 336 个测试通过（v0.1+v0.2+v0.3+v0.4 + E2E）
+- 前端 tsc 编译通过，0 lint error
+- 设计文档：`docs/superpowers/specs/2026-07-10-geo-agent-v0.4-design.md`
+- 实施计划：`docs/superpowers/plans/2026-07-10-geo-optimization-agent-v0.4.md`（22 个 task）
+- 手动验证清单：`docs/MANUAL_VERIFICATION_V0.4.md`（8 个场景）
+- 启动话术：`docs/HANDOFF_V0.4.md`
 
-**关键风险**：
-- 安全（密码、token、权限漏洞）
-- 数据隔离（多租户查询必须严格过滤）
+**ROADMAP 调整**：
+- 原 v0.4（多用户）→ 推到 **v1.0**
+- 原 v0.5（行业基准）→ 仍为 v0.5
+- 原 v0.6（Agent 化）→ 提前到 v0.4 完成
+
+**不再做**（推到 v0.4.x / v1.0）：
+- 写类工具的扩展（增删改知识库 / 上传文档 / 创建 v0.2 任务 / 发布 / 监测）—— agent 只读 + 只预览
+- 工具"增删改查"元操作（v0.4 工具集内不暴露）
+- 多用户系统 / 鉴权 / 团队 / 权限 → **v1.0**
+- API 限额 → **v1.0**
+- 审计日志 → **v1.0**
+- 跨 session 学习 / 用户偏好记忆
+- MCP server 暴露
+- 流式 LLM 输出（v0.4 用 SSE 但 LLM 响应一次性）
+- Voice / 图片 / 文件输入
 
 ---
 
@@ -278,5 +301,7 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  �
 
 - ✅ v0.1 设计 + 实施完成
 - ✅ v0.2 设计 + 实施完成
-- 🎯 v0.3：等待 v0.2 验证后启动（多站点分发 + LLM 友好站点包 + 爬虫监测）
-- 💤 v0.4+：远期规划
+- ✅ v0.3 设计 + 实施完成
+- ✅ v0.4 设计 + 实施完成（**方向变更为自主决策 Agent**）
+- 🎯 v0.5：等待 v0.4 验证后启动（行业基准 / 竞品对比）
+- 💤 v0.6+：远期规划
