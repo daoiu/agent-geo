@@ -5,8 +5,8 @@ import { api } from '@/api/client';
 import { formatDate } from '@/lib/utils';
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-800',
-  running: 'bg-blue-100 text-blue-800',
+  pending: 'bg-muted text-foreground',
+  running: 'bg-accent text-blue-800',
   completed: 'bg-green-100 text-green-800',
   failed: 'bg-red-100 text-red-800',
   cancelled: 'bg-yellow-100 text-yellow-800',
@@ -27,22 +27,22 @@ export default function TaskList() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-4xl mx-auto px-4">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">生成任务</h1>
+          <h1 className="text-3xl font-bold text-foreground">生成任务</h1>
           <Link
             to="/tasks/new"
-            className="px-4 py-2 bg-blue-600 text-white rounded-md"
+            className="px-4 py-2 bg-primary text-white rounded-md"
           >
             + 新建任务
           </Link>
         </div>
 
-        {isLoading && <p className="text-gray-500">加载中...</p>}
+        {isLoading && <p className="text-muted-foreground">加载中...</p>}
 
         {tasks && tasks.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          <div className="bg-white rounded-lg shadow p-8 text-center text-muted-foreground">
             还没有任务。
           </div>
         )}
@@ -53,24 +53,24 @@ export default function TaskList() {
               <Link
                 key={t.id}
                 to={`/tasks/${t.id}`}
-                className="block p-4 hover:bg-gray-50"
+                className="block p-4 hover:bg-muted"
               >
                 <div className="flex justify-between items-start mb-1">
-                  <div className="font-medium text-gray-900">{t.name}</div>
+                  <div className="font-medium text-foreground">{t.name}</div>
                   <span
                     className={`text-xs px-2 py-1 rounded ${STATUS_COLORS[t.status]}`}
                   >
                     {STATUS_LABELS[t.status]}
                   </span>
                 </div>
-                <div className="text-sm text-gray-500">
+                <div className="text-sm text-muted-foreground">
                   主题：{t.topic.slice(0, 50)} · 文章数 {t.article_count} ·{' '}
                   {formatDate(t.created_at)}
                 </div>
                 {t.status === 'running' && (
-                  <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div className="mt-2 w-full bg-accent rounded-full h-2">
                     <div
-                      className="bg-blue-600 h-2 rounded-full"
+                      className="bg-primary h-2 rounded-full"
                       style={{ width: `${t.progress}%` }}
                     />
                   </div>

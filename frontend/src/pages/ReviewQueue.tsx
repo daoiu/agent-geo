@@ -22,9 +22,9 @@ export default function ReviewQueue() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">审核队列</h1>
+        <h1 className="text-3xl font-bold text-foreground mb-6">审核队列</h1>
 
         <div className="flex gap-2 mb-4">
           {(['pending', 'approved', 'rejected'] as const).map((s) => (
@@ -33,7 +33,7 @@ export default function ReviewQueue() {
               type="button"
               onClick={() => setFilter(s)}
               className={`px-4 py-2 rounded-md ${
-                filter === s ? 'bg-blue-600 text-white' : 'bg-white border'
+                filter === s ? 'bg-primary text-white' : 'bg-white border'
               }`}
             >
               {STATUS_LABELS[s]}
@@ -41,10 +41,10 @@ export default function ReviewQueue() {
           ))}
         </div>
 
-        {isLoading && <p className="text-gray-500">加载中...</p>}
+        {isLoading && <p className="text-muted-foreground">加载中...</p>}
 
         {articles && articles.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          <div className="bg-white rounded-lg shadow p-8 text-center text-muted-foreground">
             {filter === 'pending' ? '没有待审核的文章' : '没有记录'}
           </div>
         )}
@@ -55,15 +55,15 @@ export default function ReviewQueue() {
               <Link
                 key={a.id}
                 to={`/reviews/${a.id}`}
-                className="block p-4 hover:bg-gray-50"
+                className="block p-4 hover:bg-muted"
               >
-                <div className="font-medium text-gray-900">
+                <div className="font-medium text-foreground">
                   {a.title || '（无标题）'}
                 </div>
-                <div className="text-sm text-gray-500 mt-1">
+                <div className="text-sm text-muted-foreground mt-1">
                   {a.content ? a.content.slice(0, 120) + '...' : '（无内容）'}
                 </div>
-                <div className="text-xs text-gray-400 mt-1">
+                <div className="text-xs text-muted-foreground mt-1">
                   {formatDate(a.created_at)}
                 </div>
               </Link>

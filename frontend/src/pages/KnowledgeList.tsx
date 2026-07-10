@@ -38,14 +38,14 @@ export default function KnowledgeList() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-4xl mx-auto px-4">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">知识库</h1>
+          <h1 className="text-3xl font-bold text-foreground">知识库</h1>
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md"
+            className="px-4 py-2 bg-primary text-white rounded-md"
           >
             + 新建知识库
           </button>
@@ -72,7 +72,7 @@ export default function KnowledgeList() {
               <button
                 type="button"
                 onClick={() => setShowCreate(false)}
-                className="px-3 py-1 text-gray-600"
+                className="px-3 py-1 text-muted-foreground"
               >
                 取消
               </button>
@@ -80,7 +80,7 @@ export default function KnowledgeList() {
                 type="button"
                 onClick={() => create.mutate()}
                 disabled={!name.trim() || create.isPending}
-                className="px-4 py-1 bg-blue-600 text-white rounded-md disabled:opacity-50"
+                className="px-4 py-1 bg-primary text-white rounded-md disabled:opacity-50"
               >
                 {create.isPending ? '创建中...' : '创建'}
               </button>
@@ -88,10 +88,10 @@ export default function KnowledgeList() {
           </div>
         )}
 
-        {isLoading && <p className="text-gray-500">加载中...</p>}
+        {isLoading && <p className="text-muted-foreground">加载中...</p>}
 
         {kbs && kbs.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          <div className="bg-white rounded-lg shadow p-8 text-center text-muted-foreground">
             还没有知识库。
           </div>
         )}
@@ -101,11 +101,11 @@ export default function KnowledgeList() {
             {kbs.map((kb) => (
               <div
                 key={kb.id}
-                className="p-4 flex justify-between items-center hover:bg-gray-50"
+                className="p-4 flex justify-between items-center hover:bg-muted"
               >
                 <Link to={`/knowledge/${kb.id}`} className="flex-1">
-                  <div className="font-medium text-gray-900">{kb.name}</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-foreground">{kb.name}</div>
+                  <div className="text-sm text-muted-foreground">
                     {kb.description || '（无描述）'} · {formatDate(kb.created_at)}
                   </div>
                 </Link>
@@ -114,7 +114,7 @@ export default function KnowledgeList() {
                   onClick={() => {
                     if (confirm(`删除知识库「${kb.name}」？`)) remove.mutate(kb.id);
                   }}
-                  className="text-red-600 text-sm px-2"
+                  className="text-destructive text-sm px-2"
                 >
                   删除
                 </button>

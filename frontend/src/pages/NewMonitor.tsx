@@ -41,12 +41,12 @@ export default function NewMonitor() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">新建监测任务</h1>
+        <h1 className="text-3xl font-bold text-foreground mb-6">新建监测任务</h1>
         <form onSubmit={submit} className="bg-white rounded-lg shadow p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">任务名称</label>
+            <label className="block text-sm font-medium text-foreground mb-1">任务名称</label>
             <input
               type="text"
               value={form.name}
@@ -57,7 +57,7 @@ export default function NewMonitor() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">品牌</label>
+              <label className="block text-sm font-medium text-foreground mb-1">品牌</label>
               <input
                 type="text"
                 value={form.brand}
@@ -67,7 +67,7 @@ export default function NewMonitor() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">行业</label>
+              <label className="block text-sm font-medium text-foreground mb-1">行业</label>
               <input
                 type="text"
                 value={form.industry}
@@ -78,7 +78,7 @@ export default function NewMonitor() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground mb-1">
               监测问题（每行一个，1-5 个）
             </label>
             <textarea
@@ -92,7 +92,7 @@ export default function NewMonitor() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">频率</label>
+              <label className="block text-sm font-medium text-foreground mb-1">频率</label>
               <select
                 value={form.frequency}
                 onChange={(e) => setForm({ ...form, frequency: e.target.value as 'hourly' | 'daily' | 'weekly' })}
@@ -104,7 +104,7 @@ export default function NewMonitor() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 变化阈值 (0.01-0.5)
               </label>
               <input
@@ -119,7 +119,7 @@ export default function NewMonitor() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground mb-1">
               LLM Providers（逗号分隔）
             </label>
             <input
@@ -130,7 +130,7 @@ export default function NewMonitor() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-foreground mb-1">
               通知邮箱（变化时通知，可选）
             </label>
             <input
@@ -144,20 +144,20 @@ export default function NewMonitor() {
             <button
               type="button"
               onClick={() => navigate('/monitors')}
-              className="px-4 py-2 text-gray-600"
+              className="px-4 py-2 text-muted-foreground"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={create.isPending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50"
+              className="px-4 py-2 bg-primary text-white rounded-md disabled:opacity-50"
             >
               {create.isPending ? '创建中...' : '创建'}
             </button>
           </div>
           {create.isError && (
-            <p className="text-sm text-red-600">创建失败：{String(create.error)}</p>
+            <p className="text-sm text-destructive">创建失败：{String(create.error)}</p>
           )}
         </form>
       </div>

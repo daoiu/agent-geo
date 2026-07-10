@@ -167,13 +167,13 @@ export default function AgentChat() {
   });
 
   if (!session) {
-    return <div className="p-8 text-center text-gray-500">加载中...</div>;
+    return <div className="p-8 text-center text-muted-foreground">加载中...</div>;
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col h-screen bg-muted">
       <header className="bg-white border-b px-4 py-3 flex justify-between items-center">
-        <Link to="/agent" className="text-blue-600 text-sm hover:underline">
+        <Link to="/agent" className="text-primary text-sm hover:underline">
           ← 返回
         </Link>
         <h1 className="text-lg font-semibold">{session.title}</h1>
@@ -188,7 +188,7 @@ export default function AgentChat() {
           <ToolCallCard key={tc.tool_call_id} display={tc} />
         ))}
         {loading && (
-          <div className="text-gray-500 text-sm italic">agent 思考中...</div>
+          <div className="text-muted-foreground text-sm italic">agent 思考中...</div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -218,7 +218,7 @@ export default function AgentChat() {
             type="button"
             onClick={send}
             disabled={!input.trim() || loading || !!pending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-white rounded-md disabled:opacity-50"
           >
             发送
           </button>

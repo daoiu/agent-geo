@@ -139,7 +139,7 @@ export default function NewDiagnosis() {
               <button
                 type="button"
                 onClick={addCompetitor}
-                className="px-4 py-2 bg-gray-100 border rounded-md text-sm hover:bg-gray-200"
+                className="px-4 py-2 bg-muted border rounded-md text-sm hover:bg-accent"
               >
                 添加
               </button>
@@ -149,7 +149,7 @@ export default function NewDiagnosis() {
                 {form.competitors.map((c) => (
                   <span
                     key={c}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-sm"
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-accent text-blue-700 rounded-full text-sm"
                   >
                     {c}
                     <button
@@ -176,7 +176,7 @@ export default function NewDiagnosis() {
           nextDisabled={submit.isPending}
           isLastStep
         >
-          <div className="bg-gray-50 p-4 rounded-md space-y-2 text-sm">
+          <div className="bg-muted p-4 rounded-md space-y-2 text-sm">
             <div><strong>品牌：</strong>{form.brand_name} ({form.industry})</div>
             <div><strong>官网：</strong>{form.official_url}</div>
             <div><strong>目标问题：</strong>

@@ -25,7 +25,9 @@ import AgentChat from '@/pages/AgentChat';
 
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
-import type { NavItem } from '@/components/layout/SideNav';
+import { navItems } from '@/components/layout/navConfig';
+import { CommandPalette, useCommandPalette } from '@/components/layout/CommandPalette';
+import { useDarkMode } from '@/hooks/useDarkMode';
 import type { Crumb } from '@/components/layout/Breadcrumb';
 import { usePipelineState } from '@/lib/usePipelineState';
 
@@ -39,63 +41,9 @@ const queryClient = new QueryClient({
 });
 
 /**
- * navItems — primary navigation per spec §3.2 (v0.6 redesign).
- * Grouped by 7 top-level categories with sub-items where applicable.
- * Notes: old `/` (ReportList) is kept as a sub-route of 诊断 (历史报告);
- *         the new `/` is Dashboard (see P1).
+ * navItems — moved to `navConfig.ts` so CommandPalette can share it
+ * without pulling in the router. Imported above.
  */
-export const navItems: NavItem[] = [
-  { key: 'home', label: '🏠 仪表盘', to: '/' },
-  {
-    key: 'diag',
-    label: '🔍 诊断',
-    to: '/new',
-    children: [
-      { key: 'diag-new', label: '新建诊断', to: '/new' },
-      { key: 'diag-history', label: '历史报告', to: '/' },
-      { key: 'diag-agent', label: '诊断智能体', to: '/agent/diagnose' },
-    ],
-  },
-  {
-    key: 'kb',
-    label: '📚 知识库',
-    to: '/knowledge',
-    children: [
-      { key: 'kb-list', label: '全部 KB', to: '/knowledge' },
-    ],
-  },
-  {
-    key: 'gen',
-    label: '✍️ 生成',
-    to: '/tasks',
-    children: [
-      { key: 'gen-tasks', label: '生成任务', to: '/tasks' },
-      { key: 'gen-new', label: '创建任务', to: '/tasks/new' },
-      { key: 'gen-reviews', label: '审核队列', to: '/reviews' },
-    ],
-  },
-  {
-    key: 'pub',
-    label: '📤 发布',
-    to: '/publishes',
-    children: [
-      { key: 'pub-configs', label: '平台配置', to: '/publishers' },
-      { key: 'pub-list', label: '发布历史', to: '/publishes' },
-    ],
-  },
-  {
-    key: 'mon',
-    label: '📈 监测',
-    to: '/monitors',
-    children: [
-      { key: 'mon-list', label: '品牌监测', to: '/monitors' },
-      { key: 'mon-new', label: '新建监测', to: '/monitors/new' },
-      { key: 'mon-notif', label: '阈值通知', to: '/notifications' },
-    ],
-  },
-  { key: 'agent', label: '🤖 智能助手', to: '/agent' },
-  { key: 'settings', label: '⚙️ 设置', to: '/settings' },
-];
 
 /**
  * crumbsFor — path → breadcrumb crumbs. Last item is the current page
@@ -137,8 +85,18 @@ function LayoutShellRouter() {
   const location = useLocation();
   const { nodes } = usePipelineState();
   const crumbs = useMemo(() => crumbsFor(location.pathname), [location.pathname]);
+  const [paletteOpen, setPaletteOpen] = useCommandPalette();
+  const { theme, toggle: toggleTheme } = useDarkMode();
   return (
-    <LayoutShell navItems={navItems} crumbs={crumbs} pipelineNodes={nodes}>
+    <>
+      <LayoutShell
+        navItems={navItems}
+        crumbs={crumbs}
+        pipelineNodes={nodes}
+        onOpenCommandPalette={() => setPaletteOpen(true)}
+        isDark={theme === 'dark'}
+        onToggleDark={toggleTheme}
+      >
       <Routes>
         <Route path="/" element={<ReportList />} />
         <Route path="/new" element={<NewDiagnosis />} />
@@ -174,7 +132,9 @@ function LayoutShellRouter() {
           }
         />
       </Routes>
-    </LayoutShell>
+      </LayoutShell>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+    </>
   );
 }
 

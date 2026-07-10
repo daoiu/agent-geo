@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { ChevronUp, ChevronDown, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type PipelineNodeKey = 'diagnose' | 'generate' | 'review' | 'publish' | 'monitor' | 'track';
@@ -76,9 +77,9 @@ export function PipelineRail({ nodes, collapsed, onToggle }: PipelineRailProps) 
           type="button"
           onClick={onToggle}
           aria-label={collapsed ? '展开流水线' : '折叠流水线'}
-          className="rounded-md p-1 text-fg-muted hover:bg-bg hover:text-fg"
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          {collapsed ? '▲' : '▼'}
+          {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
       )}
       <ol className="flex flex-1 items-center gap-3 overflow-x-auto">
@@ -104,9 +105,7 @@ export function PipelineRail({ nodes, collapsed, onToggle }: PipelineRailProps) 
                 )}
               </Link>
               {i < nodes.length - 1 && (
-                <span aria-hidden="true" className="text-fg-dim">
-                  ─
-                </span>
+                <Minus aria-hidden="true" className="h-3 w-3 text-muted-foreground" />
               )}
             </li>
           );

@@ -27,24 +27,24 @@ export default function AgentSessionList() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-3xl mx-auto px-4">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Agent 会话</h1>
+          <h1 className="text-3xl font-bold text-foreground">Agent 会话</h1>
           <button
             type="button"
             onClick={() => create.mutate()}
             disabled={create.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary disabled:opacity-50"
           >
             {create.isPending ? '创建中...' : '+ 新建对话'}
           </button>
         </div>
 
-        {isLoading && <p className="text-gray-500">加载中...</p>}
+        {isLoading && <p className="text-muted-foreground">加载中...</p>}
 
         {sessions && sessions.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          <div className="bg-white rounded-lg shadow p-8 text-center text-muted-foreground">
             还没有对话。<br />
             <span className="text-sm">试试说"帮我诊断小米"</span>
           </div>
@@ -55,11 +55,11 @@ export default function AgentSessionList() {
             {sessions.map((s) => (
               <div
                 key={s.id}
-                className="p-4 flex justify-between items-center hover:bg-gray-50"
+                className="p-4 flex justify-between items-center hover:bg-muted"
               >
                 <Link to={`/agent/${s.id}`} className="flex-1">
-                  <div className="font-medium text-gray-900">{s.title}</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-foreground">{s.title}</div>
+                  <div className="text-sm text-muted-foreground">
                     {formatDate(s.updated_at)}
                   </div>
                 </Link>
@@ -70,7 +70,7 @@ export default function AgentSessionList() {
                       remove.mutate(s.id);
                     }
                   }}
-                  className="text-red-600 text-sm px-2 hover:text-red-800"
+                  className="text-destructive text-sm px-2 hover:text-red-800"
                 >
                   删除
                 </button>

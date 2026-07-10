@@ -35,19 +35,19 @@ export default function MonitorDetail() {
     onSuccess: () => navigate('/monitors'),
   });
 
-  if (!monitor) return <div className="p-8 text-center text-gray-500">加载中...</div>;
+  if (!monitor) return <div className="p-8 text-center text-muted-foreground">加载中...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <Link to="/monitors" className="text-blue-600 text-sm">← 返回监测列表</Link>
-        <h1 className="text-3xl font-bold text-gray-900 mt-2">{monitor.name}</h1>
-        <p className="text-gray-600 mt-1">{monitor.brand} · {monitor.industry}</p>
+        <Link to="/monitors" className="text-primary text-sm">← 返回监测列表</Link>
+        <h1 className="text-3xl font-bold text-foreground mt-2">{monitor.name}</h1>
+        <p className="text-muted-foreground mt-1">{monitor.brand} · {monitor.industry}</p>
 
         <div className="bg-white rounded-lg shadow p-4 mt-4 flex justify-between items-center">
           <div>
             <div>状态：{monitor.is_active ? '运行中' : '已暂停'}</div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               频率：{monitor.frequency} · 阈值：{(monitor.change_threshold * 100).toFixed(0)}%
               {monitor.last_run_at && ` · 上次：${formatDate(monitor.last_run_at)}`}
             </div>
@@ -58,7 +58,7 @@ export default function MonitorDetail() {
               立即跑
             </button>
             <button type="button" onClick={() => { if (confirm('删除此监测任务？')) remove.mutate(); }}
-              className="px-3 py-1 text-sm bg-red-500 text-white rounded">
+              className="px-3 py-1 text-sm bg-destructive text-white rounded">
               删除
             </button>
           </div>
@@ -69,7 +69,7 @@ export default function MonitorDetail() {
           {trends && trends.points.length > 0 ? (
             <TrendChart data={trends.points} />
           ) : (
-            <p className="text-gray-500 text-center py-8">还没有数据</p>
+            <p className="text-muted-foreground text-center py-8">还没有数据</p>
           )}
         </div>
 

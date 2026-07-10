@@ -10,6 +10,10 @@ export interface LayoutShellProps {
   crumbs: Crumb[];
   pipelineNodes: PipelineNode[];
   contextPane?: ReactNode;
+  /** Callback wired from TopBar's "搜索" button (⌘K / Ctrl K also opens it). */
+  onOpenCommandPalette?: () => void;
+  isDark?: boolean;
+  onToggleDark?: () => void;
   children: ReactNode;
 }
 
@@ -22,15 +26,21 @@ export function LayoutShell({
   crumbs,
   pipelineNodes,
   contextPane,
+  onOpenCommandPalette,
+  isDark,
+  onToggleDark,
   children,
 }: LayoutShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   return (
-    <div className="flex h-screen flex-col bg-bg-subtle">
+    <div className="flex h-screen flex-col bg-muted">
       <TopBar
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
+        onOpenCommandPalette={onOpenCommandPalette}
+        isDark={isDark}
+        onToggleDark={onToggleDark}
       />
       <div className="flex flex-1 overflow-hidden">
         <aside

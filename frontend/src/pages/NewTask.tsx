@@ -50,10 +50,10 @@ export default function NewTask() {
     !create.isPending;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">新建生成任务</h1>
-        <p className="text-gray-600 mb-6">
+        <h1 className="text-3xl font-bold text-foreground mb-2">新建生成任务</h1>
+        <p className="text-muted-foreground mb-6">
           配置生成参数，AI 将基于知识库生成文章
         </p>
 
@@ -176,7 +176,7 @@ export default function NewTask() {
             <button
               type="button"
               onClick={() => navigate('/tasks')}
-              className="px-4 py-2 text-gray-600"
+              className="px-4 py-2 text-muted-foreground"
             >
               取消
             </button>
@@ -184,7 +184,7 @@ export default function NewTask() {
               type="button"
               onClick={() => create.mutate()}
               disabled={!canSubmit}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50"
+              className="px-6 py-2 bg-primary text-white rounded-md disabled:opacity-50"
             >
               {create.isPending ? '创建中...' : '创建任务'}
             </button>

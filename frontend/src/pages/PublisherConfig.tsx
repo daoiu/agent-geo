@@ -32,14 +32,14 @@ export default function PublisherConfigPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-3xl mx-auto px-4">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">WordPress 凭证</h1>
+          <h1 className="text-3xl font-bold text-foreground">WordPress 凭证</h1>
           <button
             type="button"
             onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md"
+            className="px-4 py-2 bg-primary text-white rounded-md"
           >
             + 添加凭证
           </button>
@@ -57,19 +57,19 @@ export default function PublisherConfigPage() {
             <input type="password" value={form.app_password} onChange={(e) => setForm({ ...form, app_password: e.target.value })}
               placeholder="Application Password (WordPress 后台生成)" className="w-full px-3 py-2 border rounded-md mb-3" />
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1 text-gray-600">取消</button>
+              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1 text-muted-foreground">取消</button>
               <button type="button" onClick={() => create.mutate()} disabled={!form.name || !form.site_url || form.app_password.length < 10 || create.isPending}
-                className="px-4 py-1 bg-blue-600 text-white rounded-md disabled:opacity-50">
+                className="px-4 py-1 bg-primary text-white rounded-md disabled:opacity-50">
                 {create.isPending ? '添加中...' : '添加'}
               </button>
             </div>
           </div>
         )}
 
-        {isLoading && <p className="text-gray-500">加载中...</p>}
+        {isLoading && <p className="text-muted-foreground">加载中...</p>}
 
         {configs && configs.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          <div className="bg-white rounded-lg shadow p-8 text-center text-muted-foreground">
             还没有凭证。
           </div>
         )}
@@ -80,7 +80,7 @@ export default function PublisherConfigPage() {
               <div key={c.id} className="p-4 flex justify-between items-center">
                 <div>
                   <div className="font-medium">{c.name}</div>
-                  <div className="text-sm text-gray-500">{c.site_url} · {c.username}</div>
+                  <div className="text-sm text-muted-foreground">{c.site_url} · {c.username}</div>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -89,7 +89,7 @@ export default function PublisherConfigPage() {
                       const result = await test.mutateAsync(c.id);
                       alert(result.ok ? '连接成功！' : `连接失败：${result.error}`);
                     }}
-                    className="px-3 py-1 text-sm bg-green-500 text-white rounded"
+                    className="px-3 py-1 text-sm bg-[hsl(var(--brand-success))] text-white rounded"
                   >
                     测试
                   </button>
@@ -98,7 +98,7 @@ export default function PublisherConfigPage() {
                     onClick={() => {
                       if (confirm(`删除凭证「${c.name}」？`)) remove.mutate(c.id);
                     }}
-                    className="px-3 py-1 text-sm bg-red-500 text-white rounded"
+                    className="px-3 py-1 text-sm bg-destructive text-white rounded"
                   >
                     删除
                   </button>

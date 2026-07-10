@@ -32,7 +32,7 @@ export default function DiagnosisStatus() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="bg-red-50 p-6 rounded-lg">
           <h2 className="text-red-700 font-medium">加载失败</h2>
-          <p className="text-red-600 text-sm mt-1">{String(error)}</p>
+          <p className="text-destructive text-sm mt-1">{String(error)}</p>
         </div>
       </div>
     );
@@ -40,7 +40,7 @@ export default function DiagnosisStatus() {
 
   if (!task) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
         加载中...
       </div>
     );
@@ -56,11 +56,11 @@ export default function DiagnosisStatus() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="bg-red-50 p-6 rounded-lg max-w-md">
           <h2 className="text-red-700 font-medium text-lg">诊断失败</h2>
-          <p className="text-red-600 mt-2">{task.error_message}</p>
+          <p className="text-destructive mt-2">{task.error_message}</p>
           <button
             type="button"
             onClick={() => navigate('/new')}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md"
+            className="mt-4 px-4 py-2 bg-primary text-white rounded-md"
           >
             重新诊断
           </button>
@@ -70,23 +70,23 @@ export default function DiagnosisStatus() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div className="min-h-screen bg-muted flex items-center justify-center">
       <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+        <h1 className="text-2xl font-bold text-foreground mb-2">
           {STATUS_LABELS[task.status] ?? '处理中...'}
         </h1>
-        <p className="text-gray-600 mb-6">
+        <p className="text-muted-foreground mb-6">
           品牌：<strong>{task.request.brand_name}</strong>
         </p>
 
         {/* Progress bar */}
-        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden mb-2">
+        <div className="w-full bg-accent rounded-full h-3 overflow-hidden mb-2">
           <div
-            className="bg-blue-600 h-full transition-all duration-500"
+            className="bg-primary h-full transition-all duration-500"
             style={{ width: `${task.progress}%` }}
           />
         </div>
-        <p className="text-sm text-gray-500 text-right">{task.progress}%</p>
+        <p className="text-sm text-muted-foreground text-right">{task.progress}%</p>
 
         {/* Stage indicators */}
         <div className="mt-6 space-y-2">
@@ -100,12 +100,12 @@ export default function DiagnosisStatus() {
               <div key={stage} className="flex items-center text-sm">
                 <div
                   className={`w-5 h-5 rounded-full mr-2 flex items-center justify-center text-xs ${
-                    isDone ? 'bg-green-500 text-white' : isCurrent ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                    isDone ? 'bg-[hsl(var(--brand-success))] text-white' : isCurrent ? 'bg-blue-500 text-white' : 'bg-accent'
                   }`}
                 >
                   {isDone ? '✓' : isCurrent ? '●' : ''}
                 </div>
-                <span className={isCurrent ? 'font-medium' : 'text-gray-500'}>
+                <span className={isCurrent ? 'font-medium' : 'text-muted-foreground'}>
                   {STATUS_LABELS[stage]}
                 </span>
               </div>
@@ -113,7 +113,7 @@ export default function DiagnosisStatus() {
           })}
         </div>
 
-        <p className="mt-6 text-xs text-gray-400 text-center">
+        <p className="mt-6 text-xs text-muted-foreground text-center">
           通常需要 60-90 秒。请勿关闭页面。
         </p>
       </div>

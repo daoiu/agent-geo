@@ -50,7 +50,7 @@ export default function TaskDetail() {
   });
 
   if (isLoading) {
-    return <div className="p-8 text-center text-gray-500">加载中...</div>;
+    return <div className="p-8 text-center text-muted-foreground">加载中...</div>;
   }
   if (!task) {
     return <div className="p-8 text-center text-red-500">任务不存在</div>;
@@ -59,14 +59,14 @@ export default function TaskDetail() {
   const articles = task.articles ?? [];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <Link to="/tasks" className="text-blue-600 text-sm">
+        <Link to="/tasks" className="text-primary text-sm">
           ← 返回任务列表
         </Link>
-        <h1 className="text-3xl font-bold text-gray-900 mt-2">{task.name}</h1>
-        <p className="text-gray-600 mt-1">主题：{task.topic}</p>
-        <p className="text-sm text-gray-500">创建于 {formatDate(task.created_at)}</p>
+        <h1 className="text-3xl font-bold text-foreground mt-2">{task.name}</h1>
+        <p className="text-muted-foreground mt-1">主题：{task.topic}</p>
+        <p className="text-sm text-muted-foreground">创建于 {formatDate(task.created_at)}</p>
 
         {/* Status + progress */}
         <div className="bg-white rounded-lg shadow p-4 mt-4">
@@ -91,7 +91,7 @@ export default function TaskDetail() {
                   onClick={() => {
                     if (confirm('删除此任务？文章也会被删除。')) remove.mutate();
                   }}
-                  className="px-3 py-1 text-sm bg-red-500 text-white rounded"
+                  className="px-3 py-1 text-sm bg-destructive text-white rounded"
                 >
                   删除
                 </button>
@@ -99,15 +99,15 @@ export default function TaskDetail() {
             </div>
           </div>
           {task.status === 'running' && (
-            <div className="w-full bg-gray-200 rounded-full h-2">
+            <div className="w-full bg-accent rounded-full h-2">
               <div
-                className="bg-blue-600 h-2 rounded-full transition-all"
+                className="bg-primary h-2 rounded-full transition-all"
                 style={{ width: `${task.progress}%` }}
               />
             </div>
           )}
           {task.error_message && (
-            <p className="mt-2 text-sm text-red-600">⚠ {task.error_message}</p>
+            <p className="mt-2 text-sm text-destructive">⚠ {task.error_message}</p>
           )}
         </div>
 
@@ -117,7 +117,7 @@ export default function TaskDetail() {
             文章 ({articles.length})
           </h2>
           {articles.length === 0 && (
-            <p className="p-4 text-gray-500 text-center">
+            <p className="p-4 text-muted-foreground text-center">
               还没有文章（任务运行后会生成）
             </p>
           )}
@@ -125,26 +125,26 @@ export default function TaskDetail() {
             <Link
               key={a.id}
               to={`/reviews/${a.id}`}
-              className="block p-4 border-b last:border-0 hover:bg-gray-50"
+              className="block p-4 border-b last:border-0 hover:bg-muted"
             >
               <div className="flex justify-between items-center">
                 <div className="flex-1">
-                  <div className="font-medium text-gray-900">
+                  <div className="font-medium text-foreground">
                     {a.title || '（无标题）'}
                   </div>
                   {a.error_message ? (
-                    <div className="text-sm text-red-600 mt-1">
+                    <div className="text-sm text-destructive mt-1">
                       ⚠ {a.error_message}
                     </div>
                   ) : a.content ? (
-                    <div className="text-sm text-gray-500 mt-1">
+                    <div className="text-sm text-muted-foreground mt-1">
                       {a.content.slice(0, 100)}...
                     </div>
                   ) : null}
                 </div>
                 <span
                   className={`text-xs px-2 py-1 rounded ${
-                    REVIEW_STATUS_COLORS[a.review_status] ?? 'bg-gray-100'
+                    REVIEW_STATUS_COLORS[a.review_status] ?? 'bg-muted'
                   }`}
                 >
                   {REVIEW_STATUS_LABELS[a.review_status] ?? a.review_status}

@@ -31,22 +31,22 @@ export default function ReviewArticle() {
   });
 
   if (isLoading) {
-    return <div className="p-8 text-center text-gray-500">加载中...</div>;
+    return <div className="p-8 text-center text-muted-foreground">加载中...</div>;
   }
   if (!article) {
     return <div className="p-8 text-center text-red-500">文章不存在</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-muted py-8">
       <div className="max-w-3xl mx-auto px-4">
-        <Link to="/reviews" className="text-blue-600 text-sm">
+        <Link to="/reviews" className="text-primary text-sm">
           ← 返回审核队列
         </Link>
-        <h1 className="text-3xl font-bold text-gray-900 mt-2">
+        <h1 className="text-3xl font-bold text-foreground mt-2">
           {article.title || '（无标题）'}
         </h1>
-        <div className="text-sm text-gray-500 mt-1">
+        <div className="text-sm text-muted-foreground mt-1">
           状态：{article.review_status} · 由 {article.llm_provider || '未知'}{' '}
           生成
         </div>
@@ -66,7 +66,7 @@ export default function ReviewArticle() {
 
         {/* Cited chunks */}
         {article.cited_chunks.length > 0 && (
-          <div className="bg-blue-50 rounded-lg p-4 mt-4 text-sm text-blue-800">
+          <div className="bg-accent rounded-lg p-4 mt-4 text-sm text-blue-800">
             📎 引用了 {article.cited_chunks.length} 个知识库片段
           </div>
         )}
@@ -104,7 +104,7 @@ export default function ReviewArticle() {
         )}
 
         {article.review_status !== 'pending' && article.review_note && (
-          <div className="bg-gray-50 rounded-lg p-4 mt-4 text-sm">
+          <div className="bg-muted rounded-lg p-4 mt-4 text-sm">
             <strong>审核意见：</strong>
             {article.review_note}
           </div>
