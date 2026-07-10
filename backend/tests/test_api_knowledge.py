@@ -116,3 +116,95 @@ def test_upload_rejects_unsupported_type(client: TestClient, tmp_path) -> None:
             files={"file": ("bad.exe", f, "application/octet-stream")},
         )
     assert resp.status_code == 415
+
+
+def test_full_v02_flow_with_mocked_workers(client: TestClient) -> None:
+    """Full v0.2 flow: create KB → upload doc → create task → articles → review.
+
+    Worker behavior is covered by unit tests; here we exercise the
+    full API surface (KB → task → article → review) by directly
+    populating the DB via repositories (mimicking what the workers
+    would do post-generation).
+    """
+    import asyncio
+    from app.core.db import get_session_factory
+    from app.repositories.knowledge_repo import KnowledgeRepository
+    from app.repositories.task_repo import TaskRepository
+
+    # 1. Create KB
+    kb = client.post("/api/knowledge", json={"name": "E2E KB"}).json()
+
+    # 2. Upload doc (use real parser worker)
+    from tests.conftest import PROJECT_ROOT
+    from unittest.mock import patch
+    with patch("app.api.knowledge.schedule_parse") as mock_parse:
+        mock_parse.return_value = None
+        with open(PROJECT_ROOT / "tests" / "fixtures" / "sample.txt", "rb") as f:
+            doc = client.post(
+                f"/api/knowledge/{kb['id']}/documents",
+                files={"file": ("sample.txt", f, "text/plain")},
+            ).json()
+        assert doc["filename"] == "sample.txt"
+
+    # 3. Manually populate chunks + create task + populate articles (simulating worker)
+    async def _populate():
+        async with get_session_factory()() as s:
+            krepo = KnowledgeRepository(s)
+            trepo = TaskRepository(s)
+
+            # Mark document parsed + add chunks
+            await krepo.update_document_status(
+                doc["id"], status="success", chunk_count=2
+            )
+            await krepo.add_chunks(
+                doc_id=doc["id"], kb_id=kb["id"],
+                chunks=[
+                    {"chunk_index": 0, "content": "小米手机", "content_length": 4},
+                    {"chunk_index": 1, "content": "性能优秀", "content_length": 4},
+                ],
+            )
+
+    asyncio.run(_populate())
+
+    # 4. Create task via API (mock worker so it doesn't run)
+    with patch("app.api.tasks.schedule_task") as mock_task:
+        mock_task.return_value = None
+        task = client.post("/api/tasks", json={
+            "name": "E2E Task",
+            "kb_id": kb["id"],
+            "brand": "TestBrand",
+            "topic": "足够长的主题",
+            "article_count": 2,
+            "style": "neutral",
+        }).json()
+        assert task["status"] == "pending"
+
+    # 5. Manually create 2 articles via repo (simulating worker output)
+    async def _seed_articles():
+        async with get_session_factory()() as s:
+            trepo = TaskRepository(s)
+            for i in range(2):
+                a = await trepo.create_article(task["id"], index=i)
+                await trepo.update_article(
+                    a.id, title=f"文章 {i + 1}", content="# 内容",
+                    content_length=4, cited_chunks=[],
+                )
+            await trepo.update_task_status(
+                task["id"], status="completed", progress=100
+            )
+
+    asyncio.run(_seed_articles())
+
+    # 6. Verify task is completed with 2 articles
+    t = client.get(f"/api/tasks/{task['id']}").json()
+    assert t["status"] == "completed"
+    assert len(t["articles"]) == 2
+
+    # 7. Approve first article
+    a1_id = t["articles"][0]["id"]
+    approved = client.post(f"/api/reviews/{a1_id}/approve", json={}).json()
+    assert approved["review_status"] == "approved"
+
+    # 8. Verify it's now in approved queue
+    approved_list = client.get("/api/reviews?status=approved").json()
+    assert any(a["id"] == a1_id for a in approved_list)

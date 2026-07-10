@@ -81,9 +81,29 @@ async def get_task(
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     articles = await repo.list_articles(task_id)
+    parsed_articles = []
+    for a in articles:
+        cited = json.loads(a.cited_chunks or "[]")
+        parsed_articles.append(
+            Article(
+                id=a.id,
+                task_id=a.task_id,
+                title=a.title,
+                content=a.content,
+                content_length=a.content_length,
+                review_status=a.review_status,  # type: ignore[arg-type]
+                review_note=a.review_note,
+                reviewed_at=a.reviewed_at,
+                cited_chunks=cited,
+                llm_provider=a.llm_provider,
+                error_message=a.error_message,
+                created_at=a.created_at,
+                updated_at=a.updated_at,
+            )
+        )
     return {
         **_task_to_pydantic(task).model_dump(),
-        "articles": [Article.model_validate(a) for a in articles],
+        "articles": parsed_articles,
     }
 
 

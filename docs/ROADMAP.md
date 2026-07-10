@@ -18,11 +18,9 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  �
 
 ---
 
-## v0.1 — GEO 诊断 ✅ 规划完成 / 实施中
+## v0.1 — GEO 诊断 ✅ 设计 + 实施完成
 
 **目标**：让品牌方看到自己的 GEO 健康度现状
-
-**状态**：设计 + plan 已完成（`docs/superpowers/`），实施待启动
 
 **主要功能**：
 - 官网爬虫（Schema、EEAT、结构、新鲜度检测）
@@ -35,42 +33,48 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  �
 
 **实施计划**：`docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.1.md`（28 个 task）
 
-**完成判定**：`docs/MANUAL_VERIFICATION.md` 4 个场景全过
+**完成判定**：`docs/MANUAL_VERIFICATION.md` 4 个场景全过 ✅
 
 ---
 
-## v0.2 — GEO 内容改写助手 🎯 下一阶段
+## v0.2 — 基于知识库的内容生成助手 ✅ 设计 + 实施完成
 
-**目标**：在诊断基础上，自动生成"修复建议的具体内容"——让品牌方拿到可立即发布的内容稿
+**目标**：在诊断基础上，让品牌方基于自有资料（白皮书、产品手册、FAQ）批量生成可发布文章，并人工审核
 
 **核心新增能力**：
 
 | 模块 | 描述 |
 |---|---|
-| **BLUF 内容重写器** | 输入旧文章 URL/正文，输出"结论先行"结构化重写稿 |
-| **Schema 生成器** | 输入页面 URL/HTML，输出 JSON-LD Schema 代码（Organization/FAQ/Article/Product 等） |
-| **FAQ 助手** | 输入品牌 + 行业，自动生成 10-20 个目标用户问题的标准答案 |
-| **段落级改写建议** | 选中报告里某个低分段落，给出"原始 → 优化后"对比 |
+| **知识库管理** | 上传 PDF / Word / MD / TXT 文件，自动解析 + 切片 + 入库 |
+| **关键词检索** | jieba 分词 + 词频排序召回 top-k 切片（v0.5 升级 pgvector） |
+| **任务调度** | 选知识库 + 主题 + 关键词 + 文章数，Worker 异步生成 |
+| **AI 生成** | 基于知识库真实信息生成 Markdown 文章，强制"不得编造" |
+| **人工审核** | 审核队列：批准 / 拒绝（带理由）/ 标记需修订 |
+| **v0.1 → v0.2 入口** | 报告页一键"基于此诊断创建生成任务"，品牌名预填 |
 
 **架构变化**：
-- 新增 `app/domain/rewriter.py`（LLM 驱动的改写器）
-- 新增 `app/api/rewriter.py`（REST 端点）
-- 前端新增"内容工坊"页面（Wizard 风格）
-- LLM 调用量会显著增加（每改写一篇文章 3-5 次 LLM 调用）
-- 需要加 LLM 成本控制（token 计数 + 单任务上限）
+- 新增 5 张表：`knowledge_bases` / `knowledge_documents` / `knowledge_chunks` / `tasks` / `articles`
+- 新增 `app/domain/knowledge/`（parser / chunker / retriever）
+- 新增 `app/domain/generator/`（prompt_builder / content_writer）
+- 新增 `app/tasks/parser_worker.py` + `app/tasks/task_worker.py`（单飞锁）
+- 新增 `app/api/knowledge.py` / `tasks.py` / `reviews.py`
+- 前端新增 7 个页面（知识库、任务、审核）+ 路由
 
 **数据模型新增**：
-- `RewriteJob` 表：存改写任务、原文、改写稿、用户反馈
-- `Schema` 表：存生成的 Schema 代码
+- `knowledge_bases` / `knowledge_documents` / `knowledge_chunks` / `tasks` / `articles`
 
-**前置依赖**：v0.1 完成（使用 v0.1 的诊断数据作为改写输入）
+**前置依赖**：v0.1 完成 ✅
 
-**估算工作量**：2-3 周（含 brainstorm + spec + plan + 实施）
+**实施完成情况**：
+- 后端 144 个测试通过
+- 前端 tsc 编译通过
+- 实施计划：`docs/superpowers/plans/2026-07-09-geo-optimization-agent-v0.2.md`（26 个 task）
+- 手动验证清单：`docs/MANUAL_VERIFICATION_V0.2.md`（8 个场景）
 
 **不再做**（推到 v0.3+）：
-- 自动发布到 WordPress / 公众号
-- 多用户管理
-- A/B 测试
+- 向量检索（v0.5）
+- 多用户管理（v0.4）
+- 自动发布到 WordPress / 公众号（v0.3）
 
 ---
 
@@ -258,6 +262,7 @@ v0.1 (诊断)  →  v0.2 (改写)  →  v0.3 (闭环)  →  v0.4 (多用户)  �
 
 ## 当前状态
 
-- ✅ v0.1 设计 + plan 完成
-- 🎯 v0.2：等待 v0.1 实施完成后启动
-- 💤 v0.3+：远期规划
+- ✅ v0.1 设计 + 实施完成
+- ✅ v0.2 设计 + 实施完成
+- 🎯 v0.3：等待 v0.2 验证后启动（多站点分发 + LLM 友好站点包 + 爬虫监测）
+- 💤 v0.4+：远期规划

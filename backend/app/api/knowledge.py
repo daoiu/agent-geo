@@ -23,6 +23,7 @@ from app.models.orm_v02 import (
     TaskORM,
 )
 from app.repositories.knowledge_repo import KnowledgeRepository
+from app.tasks.parser_worker import schedule_parse
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -184,13 +185,7 @@ async def upload_document(
         file_size=written,
     )
 
-    # Schedule parser worker (created in next task)
-    try:
-        from app.tasks.parser_worker import schedule_parse
-
-        schedule_parse(doc.id)
-    except ImportError:
-        # Worker not yet implemented; document stays pending.
-        pass
+    # Schedule parser worker
+    schedule_parse(doc.id)
 
     return doc
