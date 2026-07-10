@@ -136,19 +136,50 @@ export function usePipelineState(): { nodes: PipelineNode[]; isLoading: boolean 
 
   const nodes: PipelineNode[] = (
     [
-      ['diagnose', '诊断', '/'],
-      ['generate', '生成', '/tasks'],
-      ['review', '审核', '/reviews'],
-      ['publish', '发布', '/publishes'],
-      ['monitor', '监测', '/monitors'],
-      ['track', '跟踪', '/monitors'],
-    ] as [PipelineNodeKey, string, string][]
-  ).map(([key, label, to]) => ({
-    key,
-    label,
-    to,
-    status: views[key].status,
-    count: views[key].count,
+      {
+        key: 'diagnose',
+        label: '诊断',
+        to: '/',
+        matchPrefixes: ['/', '/new', '/diagnosis', '/reports', '/agent/diagnose'],
+      },
+      {
+        key: 'generate',
+        label: '生成',
+        to: '/tasks',
+        matchPrefixes: ['/tasks'],
+      },
+      {
+        key: 'review',
+        label: '审核',
+        to: '/reviews',
+        matchPrefixes: ['/reviews'],
+      },
+      {
+        key: 'publish',
+        label: '发布',
+        to: '/publishes',
+        matchPrefixes: ['/publishes', '/publishers'],
+      },
+      {
+        key: 'monitor',
+        label: '监测',
+        to: '/monitors',
+        matchPrefixes: ['/monitors'],
+      },
+      {
+        key: 'track',
+        label: '跟踪',
+        to: '/monitors',
+        matchPrefixes: ['/agent', '/notifications'],
+      },
+    ] as Array<{ key: PipelineNodeKey; label: string; to: string; matchPrefixes: string[] }>
+  ).map((cfg) => ({
+    key: cfg.key,
+    label: cfg.label,
+    to: cfg.to,
+    matchPrefixes: cfg.matchPrefixes,
+    status: views[cfg.key].status,
+    count: views[cfg.key].count,
   }));
 
   return {

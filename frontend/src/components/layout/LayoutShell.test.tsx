@@ -9,7 +9,7 @@ import type { PipelineNode } from './PipelineRail';
 const NAV: NavItem[] = [{ key: 'home', label: '仪表盘', to: '/' }];
 const CRUMBS: Crumb[] = [{ label: '仪表盘' }];
 const NODES: PipelineNode[] = [
-  { key: 'diagnose', label: '诊断', to: '/', status: 'done' },
+  { key: 'diagnose', label: '诊断', to: '/', matchPrefixes: ['/'], status: 'done' },
 ];
 
 describe('LayoutShell', () => {
