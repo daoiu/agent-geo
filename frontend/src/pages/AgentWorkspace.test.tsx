@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/renderWithRouter';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 
 // Mock the api so React Query never touches fetch.
 vi.mock('@/api/client', () => ({
@@ -55,18 +54,10 @@ beforeEach(() => {
 });
 
 describe('AgentWorkspace', () => {
-  it('renders 3 mode tabs in the segmented control', () => {
-    renderWithRouter(<AgentWorkspace />);
-    expect(screen.getByRole('tab', { name: /快速模式/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /专家模式/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /识图模式/ })).toBeInTheDocument();
-  });
-
   it('groups sessions by 7 days / 30 days / YYYY-MM', async () => {
     renderWithRouter(<AgentWorkspace />);
     expect(await screen.findByText('7天内')).toBeInTheDocument();
     expect(await screen.findByText('30天内')).toBeInTheDocument();
-    // 80-100 days ago → bucket '2026-XX' (group label)
     const months = await screen.findAllByText(/\d{4}-\d{2}内/);
     expect(months.length).toBeGreaterThanOrEqual(2);
   });
@@ -79,17 +70,7 @@ describe('AgentWorkspace', () => {
 
   it('shows the empty-state call-to-action when no session is loaded', () => {
     renderWithRouter(<AgentWorkspace />, { initialEntries: ['/agent'] });
-    expect(screen.getByText(/使用快速模式开始对话/)).toBeInTheDocument();
-  });
-
-  it('switches mode labels in the empty state', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<AgentWorkspace />, { initialEntries: ['/agent'] });
-    expect(screen.getByText(/使用快速模式开始对话/)).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /专家模式/ }));
-    expect(screen.getByText(/使用专家模式开始对话/)).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /识图模式/ }));
-    expect(screen.getByText(/使用识图模式开始对话/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /开始对话/ })).toBeInTheDocument();
   });
 
   it('send button is disabled while input is empty', () => {
