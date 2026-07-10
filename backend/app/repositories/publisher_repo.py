@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.orm_v02 import ArticleORM
 from app.models.orm_v03 import PublisherConfigORM, PublishJobORM
 
 
@@ -80,6 +81,14 @@ class PublishRepository:
             delete(PublisherConfigORM).where(PublisherConfigORM.id == id)
         )
         await self.session.commit()
+
+    # --- Cross-table (v0.2 article) ---
+
+    async def get_article(self, article_id: str) -> ArticleORM | None:
+        result = await self.session.execute(
+            select(ArticleORM).where(ArticleORM.id == article_id)
+        )
+        return result.scalar_one_or_none()
 
     # --- PublishJob ---
 
