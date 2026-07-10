@@ -84,3 +84,7 @@ class GenerationError(DomainError):
 
 class ReviewError(DomainError):
     """Review subsystem errors."""
+
+
+class PublishError(DomainError):
+    """WordPress publish operation failed."""
