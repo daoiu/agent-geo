@@ -41,10 +41,32 @@ class KnowledgeRepository:
         return result.scalar_one_or_none()
 
     async def list_kbs(self) -> list[KnowledgeBaseORM]:
-        result = await self.session.execute(
-            select(KnowledgeBaseORM).order_by(KnowledgeBaseORM.created_at.desc())
+        """v0.6 P1.4: 通过 LEFT JOIN 一次性拿 doc_count。
+
+        单 SQL：SELECT kb.*, COUNT(doc.id) FROM knowledge_bases
+        LEFT JOIN knowledge_documents ON kb.id = doc.kb_id
+        GROUP BY kb.id ORDER BY kb.created_at DESC
+        """
+        from sqlalchemy import func
+
+        stmt = (
+            select(
+                KnowledgeBaseORM,
+                func.count(KnowledgeDocumentORM.id).label("doc_count"),
+            )
+            .outerjoin(
+                KnowledgeDocumentORM,
+                KnowledgeDocumentORM.kb_id == KnowledgeBaseORM.id,
+            )
+            .group_by(KnowledgeBaseORM.id)
+            .order_by(KnowledgeBaseORM.created_at.desc())
         )
-        return list(result.scalars().all())
+        rows = await self.session.execute(stmt)
+        result: list[KnowledgeBaseORM] = []
+        for kb, doc_count in rows.all():
+            kb.doc_count = doc_count  # 动态属性，pydantic from_attributes 拿到
+            result.append(kb)
+        return result
 
     async def delete_kb(self, kb_id: str) -> None:
         """Cascade-deletes via FK ON DELETE CASCADE."""

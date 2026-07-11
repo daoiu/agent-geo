@@ -172,3 +172,60 @@ async def test_search_chunks_hybrid_uses_hybrid_search(db_session) -> None:
     MockHS.return_value.search.assert_called_once_with(
         kb_id="kb1", query="test query", top_k=5
     )
+
+
+@pytest.mark.asyncio
+async def test_list_kbs_returns_doc_count(db_session) -> None:
+    """list_kbs 返回结果带 doc_count 字段（LEFT JOIN GROUP BY 单 SQL）。"""
+    repo = KnowledgeRepository(db_session)
+    kb0 = await repo.create_kb(name="空 KB")          # 0 docs
+    kb1 = await repo.create_kb(name="单文档 KB")       # 1 doc
+    await repo.add_document(
+        kb_id=kb1.id, filename="a.md", file_path="/tmp/a.md",
+        file_type="md", file_size=10,
+    )
+    kbs = await repo.list_kbs()
+    by_id = {kb.id: kb for kb in kbs}
+    assert by_id[kb0.id].doc_count == 0
+    assert by_id[kb1.id].doc_count == 1
+
+
+@pytest.mark.asyncio
+async def test_list_kbs_doc_count_n_plus_one_safe(db_session) -> None:
+    """3 个 KB × 各 2 个 doc — list 一次 SQL（无 N+1）。"""
+    from sqlalchemy import event
+    from app.core.db import get_session_factory
+
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = KnowledgeRepository(session)
+        for n in range(3):
+            kb = await repo.create_kb(name=f"KB{n}")
+            for d in range(2):
+                await repo.add_document(
+                    kb_id=kb.id, filename=f"d{d}.md", file_path=f"/tmp/d{d}.md",
+                    file_type="md", file_size=10,
+                )
+
+    # 用 fresh session + 事件探针
+    async with factory() as session:
+        statements: list[str] = []
+
+        # before_cursor_execute 是 Engine/Connection 级事件，挂到 session 绑定的
+        # 底层 sync engine 上。
+        sync_engine = session.sync_session.get_bind()
+
+        @event.listens_for(sync_engine, "before_cursor_execute")
+        def _capture(conn, cursor, statement, params, ctx, executemany):  # noqa: ANN001
+            statements.append(statement)
+
+        repo = KnowledgeRepository(session)
+        kbs = await repo.list_kbs()
+        for kb in kbs:
+            assert kb.doc_count == 2
+
+        event.remove(sync_engine, "before_cursor_execute", _capture)
+
+        # 应当只有 1 个 SELECT（含 JOIN + GROUP BY）；不允许对每个 KB 多发一个 SELECT
+        select_count = sum(1 for s in statements if "SELECT" in s.upper())
+        assert select_count == 1, f"expected 1 SELECT, got {select_count}: {statements}"

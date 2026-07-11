@@ -18,6 +18,7 @@ class KnowledgeBase(BaseModel):
     name: str
     description: str | None
     created_at: datetime
+    doc_count: int = 0  # v0.6 P1.4 — 由 LEFT JOIN docs GROUP BY 一次性给出
 
 
 class KnowledgeDocument(BaseModel):
