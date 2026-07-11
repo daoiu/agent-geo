@@ -58,6 +58,39 @@ curl 'http://localhost:8000/api/knowledge/search?q=hi&limit=999'  # 422
 - **缓存键**:前端 `['knowledge-global-search', query]` + `enabled: false` — 仅手动触发(Enter),输入框每次 keystroke 不打后端
 - **未实施范围**:跨 KB 的 re-rank(MMR / cross-encoder)、来源 KB 高亮拼接到 RAG prompt、未做 — 留 v0.6+
 
+## Phase 1 / P1.4 — Agent 工具集扩到 5 (2026-07-11)
+
+> 目标:用户提「给我生成北北云吞 5 篇宣传文」,agent 能自己 list → 匹配 → 召回 → 创建任务,**不在会话循环**
+
+- **新增/改动工具**:
+  - `list_knowledge_bases`(新,no args)→ `[{kb_id, kb_name, doc_count, created_at}]`;`KnowledgeRepository.list_kbs` 的 `doc_count` 走单 SQL LEFT JOIN GROUP BY(避免 N+1),`KnowledgeBase` schema 加 `doc_count: int = 0`
+  - `search_knowledge`(改)`kb_id` 可选:不传 → `HybridSearch.search_across_kbs`(P1.3 跨库);传了 → `repo.search_chunks_hybrid`(v0.5 单库)。返回 shape 统一加 `kb_name`/`doc_filename`/`scope`
+  - `create_generation_task`(新)包装 v0.2 `TaskRepository.create_task` + `task_worker.schedule_task`,**不**抛 HumanConfirmation
+- **Prompt 策略**:`AGENT_SYSTEM_PROMPT` 追加"知识库使用策略"段 — 先 list 后 search;chunk 引用附 `kb_name`+`doc_filename`;多篇走 create_task 不在循环
+- **`MAX_REACT_ITERATIONS`**:5 → 7
+- **文档**:spec `docs/superpowers/specs/2026-07-11-geo-agent-kb-fullchain-design.md` / plan `.../plans/2026-07-11-geo-agent-kb-fullchain-plan.md`
+- **测试**:后端 **442 passed**(+22);前端不变(spec §7 无前端改动)
+
+### 手动验证 P1.4
+
+```bash
+# 起 backend + frontend
+cd backend && uvicorn app.main:app --port 8000 &
+cd frontend && npm run dev
+
+# 浏览器: http://localhost:5173/agent
+# 输入「我有几个知识库？」（应触发 list 工具，回答含「北北云吞」）
+# 输入「给我生成北北云吞的 5 篇不同的宣传文」
+#   → agent 应 1) list → 2) 匹配 kb_id='fbac45ba-...' → 3) search → 4) create_task
+#   → 回答里出现 task_id 和「去 /tasks/<id> 审核 5 篇草稿」
+# 去 http://localhost:5173/tasks/<id> 看到 5 篇文章正在生成
+```
+
+### 风险
+
+- `list_knowledge_bases` 的 `doc_count` GROUP BY 在数百 KB 量级 SQLite 仍可;千级以上考虑 PostgreSQL
+- prompt 策略段(10 行)会侵蚀 system prompt tokens budget;监控 LLM 调用 system prompt 长度
+
 ## 验证
 
 ```bash

@@ -106,6 +106,16 @@
 | `/agent` `/agent/:sessionId` | 侧边「智能助手」 |
 | 新增 `/settings` | 侧边「设置」(P1+ 实现) |
 
+> **`/agent` 工具集 (v0.6 P1.4)** — agent 后端可调 5 个工具：
+>
+> | 工具 | 入参 |
+> |---|---|
+> | `diagnose_brand` | `brand_name, industry, official_url` |
+> | `list_knowledge_bases` | () |
+> | `search_knowledge` | `kb_id?`, `query`, `limit=5` |
+> | `generate_article` | `kb_id, brand, topic, keywords, style, target_length`（单篇，需确认） |
+> | `create_generation_task` | `kb_id, brand, topic, article_count, keywords, style, target_length`（多篇，落 v0.2 任务） |
+
 ## 8. PipelineRail 6 节点
 
 | Key | Label | Default to |

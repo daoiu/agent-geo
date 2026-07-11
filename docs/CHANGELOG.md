@@ -46,6 +46,23 @@
 - 旧 page 内部仍使用 `bg-blue-600` / `text-gray-900` 等与新 token 不一致的硬编码；视觉"新旧混搭"直到 P1-P5 渐进替换
 - 旧 `Header` 已删除 (集成进 LayoutShell)
 
+### Phase 1 / P1.4 已完成 (本批)
+
+- **Agent 工具集从 3 扩到 5**：让 LLM 在会话里能"列 KB → 召回 → 触发生成任务"完成"北北云吞 5 篇"场景，**不在 agent 会话循环**
+  - 新 `list_knowledge_bases`：(no args) → `[{kb_id, kb_name, doc_count, created_at}]`。`KnowledgeRepository.list_kbs` 的 `doc_count` 走 **单 SQL LEFT JOIN GROUP BY**（避免 N+1）；`KnowledgeBase` schema 加 `doc_count: int = 0`
+  - `search_knowledge` 改 `kb_id` 可选：不传跨库走 `HybridSearch.search_across_kbs` (P1.3)；传了走 `repo.search_chunks_hybrid` (v0.5)。返回统一 shape 加 `kb_name`、`doc_filename`、`scope` 字段
+  - 新 `create_generation_task`：包装 v0.2 `TaskRepository.create_task` + `task_worker.schedule_task`，**不**抛 HumanConfirmation。agent turn 即结束；用户去 `/tasks/<task_id>` 审核 N 篇草稿
+- **`AGENT_SYSTEM_PROMPT` 加入"知识库使用策略"段**：强制 LLM 先 list → name-match → search；多篇必须走 create_task；chunk 引用附 `kb_name` + `doc_filename` 可溯源
+- **`MAX_REACT_ITERATIONS` 5 → 7**：给 `list → search → create_task` 三步最小链留余量
+- **测试**：
+  - 既有测试零回归：`test_three_tools_registered` → `test_five_tools_registered`（5 件套）
+  - 新增 `tests/test_agent_tool_executor_search.py` 4 cases（双分支 + shape 统一 + 500 截断）
+  - 新增 `tests/test_agent_tool_executor_create_task.py` 2 cases（happy + bogus_kb）
+  - 新增 `tests/test_agent_prompt_strategy.py` 4 cases（prompt 含 list/create 关键词 + MAX_REACT=7）
+  - 既有 `tests/test_knowledge_repo.py` 新增 2 cases（含 `doc_count` + N+1 防护探针）
+  - 既有 `tests/test_agent_tools.py` 增 validator cases（list + create_task）
+  - 全量：**后端 442 passed（+22）、前端不变（87 passed）**
+
 ## [v0.5] - 2026-07-10
 
 ### 方向变更
