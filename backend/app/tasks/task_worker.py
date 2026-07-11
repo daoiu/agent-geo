@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session_factory
-from app.domain.generator.content_writer import ContentWriter
+from app.domain.generator.content_writer_agent import ContentWriterAgent
 from app.domain.knowledge.retriever import extract_search_keywords, search_chunks
 from app.repositories.task_repo import TaskRepository
 
@@ -25,7 +25,7 @@ async def _process_one(
     index: int,
     article: Any,
     task_repo: TaskRepository,
-    writer: ContentWriter,
+    writer: ContentWriterAgent,
     top_k: int,
     default_provider: str,
 ) -> None:
@@ -105,7 +105,7 @@ async def _run_with_session(
             await task_repo.create_article(task_id, index=i)
 
         articles = await task_repo.list_articles(task_id)
-        writer = ContentWriter(settings)
+        writer = ContentWriterAgent(settings)
 
         for i, article in enumerate(articles):
             # Re-check status before each article (cancellable mid-run)

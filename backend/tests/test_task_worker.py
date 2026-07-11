@@ -46,7 +46,7 @@ async def test_run_task_creates_articles_and_generates(db_session) -> None:
         article_count=2, style="neutral", target_length=500,
     )
 
-    with patch("app.tasks.task_worker.ContentWriter") as MockWriter:
+    with patch("app.tasks.task_worker.ContentWriterAgent") as MockWriter:
         mock_instance = MockWriter.return_value
         mock_instance.write_article = AsyncMock(return_value=("生成标题", "生成内容"))
         await run_task(task.id, session=db_session)
@@ -72,7 +72,7 @@ async def test_run_task_continues_on_article_failure(db_session) -> None:
         name="T", kb_id=kb.id, topic="X", article_count=3, style="neutral",
     )
 
-    with patch("app.tasks.task_worker.ContentWriter") as MockWriter:
+    with patch("app.tasks.task_worker.ContentWriterAgent") as MockWriter:
         mock_instance = MockWriter.return_value
         # First succeeds, second raises, third succeeds
         mock_instance.write_article = AsyncMock(
@@ -107,7 +107,7 @@ async def test_run_task_respects_cancellation(db_session) -> None:
     # Mark task as cancelled before run
     await task_repo.update_task_status(task.id, status="cancelled")
 
-    with patch("app.tasks.task_worker.ContentWriter") as MockWriter:
+    with patch("app.tasks.task_worker.ContentWriterAgent") as MockWriter:
         mock_instance = MockWriter.return_value
         mock_instance.write_article = AsyncMock(return_value=("T", "C"))
         await run_task(task.id, session=db_session)
