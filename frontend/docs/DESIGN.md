@@ -197,3 +197,52 @@ import { tokens } from '@/lib/tokens';
 
 **API**：`GET /api/knowledge/search?q=&limit=`（不需要 kb_id）
 **响应**：`{ query, hits: [{ kb_id, kb_name, doc_id, doc_filename, chunk_id, content, score, sources }] }`
+
+---
+
+## 9. 文章消费模式（v0.6 P1.5）
+
+### 文章详情页 `/reviews/:articleId`
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ ← 返回任务详情                                            │
+│ 状态：pending · 由 deepseek 生成 · 创建于 2026-07-11     │
+│                                                          │
+│  ════════════════════════════════════════                │
+│  我的真实标题（H1，32px 加粗，teal 强调线）              │
+│  ════════════════════════════════════════                │
+│                                                          │
+│  [📋 复制全文（Markdown）] [📄 复制纯文本] [⬇ 下载 .md]   │
+│                                                          │
+│  ┌─ 正文区（剥掉首行 H1）──────────────────────────────┐ │
+│  │  ## 章节一                                          │ │
+│  │  正文内容，每段第一句=核心结论（BLUF）             │ │
+│  │  - 列表项 1                                        │ │
+│  │  - 列表项 2                                        │ │
+│  └────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+| 元素 | 行为 |
+|---|---|
+| H1 标题 | `text-3xl font-bold text-fg`，下边框 `border-b-2 border-primary` |
+| 复制全文 | `navigator.clipboard.writeText(content)` + `toast.success` |
+| 复制纯文本 | 先 `stripMarkdown(content)` 剥掉 H1-H3/链接/列表/引用/代码块,再复制 |
+| 下载 .md | 前端用 `Blob` + `<a download>` 触发；后端 `GET /api/articles/{id}/download` 备用 |
+| 返回链接 | `<Link to={/tasks/${article.task_id}}>` 而不是 `/reviews` |
+
+### TaskDetail 卡片快捷复制
+
+```
+┌─ 我的真实标题 ──────────────────────────────────┐  [📋]  [待审核] ┐
+│  正文前 100 字预览...                              │                   │
+└────────────────────────────────────────────────────┘
+```
+
+- 📋 按钮在卡片右上角,`stopPropagation` 防止触发卡片跳转
+- `disabled={!a.content}` 错误文章不显示
+
+### 文件名 sanitization
+
+`{article_id[:8]}-{sanitized_title}.md`,Windows 非法字符 `\\/:*?"<>|` 替换为 `_`,中文保留(RFC 5987 双格式)

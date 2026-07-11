@@ -63,6 +63,44 @@
   - 既有 `tests/test_agent_tools.py` 增 validator cases（list + create_task）
   - 全量：**后端 442 passed（+22）、前端不变（87 passed）**
 
+### Phase 1 / P1.5 已完成 (本批)
+
+聚焦两个能力：**内容生成 agent 化 + 文章消费体验**。
+
+#### 后端 —— ContentWriterAgent 独立 system prompt
+
+- **`app/domain/generator/system_prompts.py`** 新增：从 26 个 GEO 提示词工程文档（📝 GEO 内容 / 🛠️ GEO 通用与工具 / 📈 GEO 原理 / 🛡️ GEO 风险，共 10 个核心文档）提炼的 v2 system prompt。核心吸收：RTF 框架 + EEAT 原则 + 答案优先（BLUF）+ 原子化模块 + 严禁编造（最高优先级）+ 反模式清单（6 条）
+- **`app/domain/generator/content_writer_agent.py`** 新增：`ContentWriterAgent` 类，**独立 system role**（不再把角色指令塞 user prompt），接口与旧 `ContentWriter` 兼容（`write_article()` / `stream_article()`），流式 yield 增量 chunks
+- **`app/domain/generator/prompt_builder.py`** 拆为 `build_user_prompt`（仅任务参数）+ 旧 `build` 兼容 shim
+- **`app/tasks/task_worker.py`** 接入：`ContentWriter` → `ContentWriterAgent`（生产路径切换，旧模块保留兼容）
+- **bug 修复**：`content_writer.py` + `diagnosis_service.py` 之前使用裸 `deepseek_base_url`（如 `https://api.minimaxi.com` 无 `/v1`）直接传 `AsyncOpenAI`，404 被吞成空 content。统一走 `_normalize_base_url` 自动补 `/v1`
+- **新测试**：
+  - `tests/test_content_writer_agent.py` 14 cases（system role 独立性、user prompt 不嵌角色、bare-host base_url 回归、流式增量、transient 异常吞掉、RAG chunks 渲染）
+  - `tests/test_task_worker.py` 改 patch target：`ContentWriter` → `ContentWriterAgent`（3 处）
+
+#### 后端 —— 文章单篇详情 + 下载 API
+
+- **`app/api/articles.py`** 新增：
+  - `GET /api/articles/{id}` —— 单篇详情（返回完整 `title` + `content`，复用现有 `Article` pydantic）
+  - `GET /api/articles/{id}/download` —— Markdown 文件下载（`Content-Type: text/markdown; charset=utf-8` + `Content-Disposition: attachment`，文件名 `{article_id[:8]}-{sanitized_title}.md`，RFC 5987 双格式支持中文）
+- **`app/main.py`** 注册 `articles.router`
+- **`tests/test_articles_api.py`** 新增 5 cases（详情 200/404、下载文件名 sanitization、title=None 兜底、CD 头含中文）
+
+#### 前端 —— 文章详情页 + 复制/下载
+
+- **`src/pages/ReviewArticle.tsx`** 改造：H1 标题独立大字显示（teal 强调线）+ 正文区剥掉首行 H1（避免重复）+ 3 个按钮（📋 复制全文 Markdown / 📄 复制纯文本 / ⬇ 下载 .md）+ `返回任务详情` 链接
+- **`src/lib/markdown.ts`** 新增：`stripMarkdown()` —— 把 H1-H3 / 链接 / 图片 / 列表 / 引用 / 代码块剥成纯文本（不引第三方），11 个测试
+- **`src/pages/TaskDetail.tsx`** 改造：文章卡片右边角新增 📋 一键复制按钮（不进详情页也能复制，`stopPropagation` 防误跳转）
+- **新测试**：
+  - `src/lib/markdown.test.ts` 11 cases
+  - `src/pages/ReviewArticle.test.tsx` 6 cases（标题独立、3 按钮存在、复制全文/纯文本/下载交互、错误状态展示）
+- **API client 不变**：前端 `api.getArticle` 已接 `GET /reviews/{id}`（P1.2 已有），无需新增
+
+#### 全量验证
+
+- 后端 **467 passed**（+14，含 articles API 5 + content_writer_agent 14 + 旧测试微调 3 处 patch target）
+- 前端 **117 passed**（+17，含 markdown utility 11 + ReviewArticle 6 + 旧测试零回归）
+
 ## [v0.5] - 2026-07-10
 
 ### 方向变更

@@ -91,6 +91,73 @@ cd frontend && npm run dev
 - `list_knowledge_bases` 的 `doc_count` GROUP BY 在数百 KB 量级 SQLite 仍可;千级以上考虑 PostgreSQL
 - prompt 策略段(10 行)会侵蚀 system prompt tokens budget;监控 LLM 调用 system prompt 长度
 
+## Phase 1 / P1.5 — 内容生成 agent 化 + 文章消费体验 (2026-07-11)
+
+> 目标:把 v0.5 的 `ContentWriter` 升级为带独立 system prompt 的 agent,文章生成走 RAG 召回 + GEO 共识提示词;用户能在详情页复制/下载文章
+
+### 后端 — ContentWriterAgent (独立 system prompt)
+
+- **`app/domain/generator/system_prompts.py`** 新增:v2 system prompt,基于 26 个 GEO 提示词工程文档(📝 GEO 内容 / 🛠️ GEO 通用与工具 / 📈 GEO 原理 / 🛡️ GEO 风险,共 10 个核心文档)提炼。核心吸收:RTF 框架 + EEAT 原则 + 答案优先(BLUF)+ 原子化模块 + 严禁编造(最高优先级)+ 反模式清单(6 条)
+- **`app/domain/generator/content_writer_agent.py`** 新增:`ContentWriterAgent` 类,独立 system role(不再把角色指令塞 user prompt),接口与旧 `ContentWriter` 兼容(`write_article()` / `stream_article()`),流式 yield 增量 chunks
+- **`app/domain/generator/prompt_builder.py`** 拆为 `build_user_prompt`(仅任务参数)+ 旧 `build` 兼容 shim
+- **`app/tasks/task_worker.py`** 接入:`ContentWriter` → `ContentWriterAgent`(生产路径切换,旧模块保留兼容)
+
+### 后端 — Bug 修复
+
+- **bug**: `content_writer.py` + `diagnosis_service.py` 之前使用裸 `deepseek_base_url`(如 `https://api.minimaxi.com` 无 `/v1`)直接传 `AsyncOpenAI`,404 被吞成空 content,导致"生成失败 / LLM 调用失败"
+- **修**:统一走 `_normalize_base_url` 自动补 `/v1`(已在 v0.5 `llm_client.py` 实现,但 content_writer/diagnosis_service 没复用)
+- **回归测试**: `tests/test_content_writer.py` 新增 `test_write_article_normalizes_bare_host_base_url`
+
+### 后端 — 文章单篇详情 + 下载 API
+
+- **`app/api/articles.py`** 新增:
+  - `GET /api/articles/{id}` — 单篇详情(返回完整 `title` + `content`,复用现有 `Article` pydantic)
+  - `GET /api/articles/{id}/download` — Markdown 文件下载(`Content-Type: text/markdown; charset=utf-8` + `Content-Disposition: attachment`,文件名 `{article_id[:8]}-{sanitized_title}.md`,RFC 5987 双格式支持中文)
+- **`app/main.py`** 注册 `articles.router`
+- **测试**: `tests/test_articles_api.py` 5 cases
+
+### 前端 — 文章详情页 + 复制/下载
+
+- **`src/pages/ReviewArticle.tsx`** 改造:H1 标题独立大字显示(teal 强调线)+ 正文区剥掉首行 H1(避免重复)+ 3 个按钮(📋 复制全文 Markdown / 📄 复制纯文本 / ⬇ 下载 .md)+ `返回任务详情` 链接
+- **`src/lib/markdown.ts`** 新增:`stripMarkdown()` — 把 H1-H3 / 链接 / 图片 / 列表 / 引用 / 代码块剥成纯文本(不引第三方),11 测试
+- **`src/pages/TaskDetail.tsx`** 改造:文章卡片右边角新增 📋 一键复制按钮(不进详情页也能复制,`stopPropagation` 防误跳转)
+- **测试**: `markdown.test.ts` 11 + `ReviewArticle.test.tsx` 6
+- **API client 不变**: 前端 `api.getArticle` 已接 `GET /reviews/{id}`(P1.2 已有)
+
+### 手动验证 P1.5
+
+```bash
+# 启动
+cd backend && uvicorn app.main:app --port 8000 &
+cd frontend && npm run dev
+
+# 浏览器: http://localhost:5173/agent
+# 输入「给我生成北北云吞的 5 篇不同的宣传文」(走 P1.4 工具链 + P1.5 ContentWriterAgent)
+# 去 /tasks/<id> 等 5 篇生成完成(不再 "LLM 调用失败")
+# 每条卡片右上有 📋 一键复制按钮
+# 点击文章 → /reviews/<id>
+#   - H1 标题大字独立显示
+#   - 3 个按钮:📋 复制全文 / 📄 复制纯文本 / ⬇ 下载 .md
+#   - 点下载得到 {article_id[:8]}-{title}.md 文件
+```
+
+### v2 system prompt 的关键设计决策
+
+| 决策 | 选择 | 原因 |
+|---|---|---|
+| 角色定位 | GEO 内容生成 agent(融合内容策略/GEO 技术/AI 算法三种视角) | v1 占位骨架太单薄;GEO 文档共识是"多视角融合" |
+| 框架方法论 | RTF(Role-Task-Format) | GEO提示词生成模板 / 内容工厂 / AI引用率优化 4+ 处共识 |
+| 写作范式 | 答案优先(BLUF)+ 原子化模块 | AI友好内容 / 答案空间占领 / GEO文章生成 5 处共识 |
+| 反编造规则 | 升级为最高优先级 + 红线 | 改造提示词(4 次警告)+ 白帽合规 + 品牌知识资产 = 5+ 处 |
+| 失败兜底 | "参考资料不足" 提示 + 不拒绝任务 | GEO文章生成系统强调"不拒任务";v1 占位骨架已有此规则 |
+| 不做的事 | 不强制 Schema.org JSON-LD 输出 | 后端没存/没渲染;加重 LLM 输出负担;留 v3+ |
+
+### 风险
+
+- v2 system prompt 长度(~900 tokens)比 v1(~150 tokens)长 6 倍;监控 LLM 单次成本
+- 6 条反模式清单是经验性约束,实际生成质量需要人工抽样验证
+- `stripMarkdown` 不处理 HTML 嵌套 / 自定义容器语法;复杂文章可能残留
+
 ## 验证
 
 ```bash
@@ -170,6 +237,14 @@ feat(frontend/v0.6/P0): LayoutShell + TopBar + SideNav + Breadcrumb + PipelineRa
 feat(frontend/v0.6/P0): App.tsx mounts LayoutShell + navItems + crumbsFor mapper
 test(frontend/v0.6/P0): e2e — LayoutShell smoke + a11y axe (header/nav/footer/main)
 docs(frontend/v0.6/P0): DESIGN.md tokens guide + CHANGELOG + HANDOFF_V0.6
+feat(backend/v0.6/P1.4): agent 工具集扩到 5 + 知识库使用策略
+feat(backend/v0.6/P1.4): KnowledgeBase.doc_count 单 SQL JOIN
+docs(v0.6/P1.4): CHANGELOG + HANDOFF + DESIGN 同步 P1.4 完成
+feat(backend/v0.6/P1.5): ContentWriterAgent 独立 system prompt + base_url 修复
+feat(backend/v0.6/P1.5): GET /articles/{id} + 下载 .md
+feat(frontend/v0.6/P1.5): ReviewArticle 详情页 H1 区分 + 复制/下载
+feat(frontend/v0.6/P1.5): TaskDetail 卡片 📋 一键复制
+docs(v0.6/P1.5): CHANGELOG + HANDOFF 同步 P1.5 完成
 ```
 
 ## 退出标准
