@@ -69,6 +69,44 @@ def test_get_session_missing_returns_404(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+def test_get_session_with_tool_calls_message(client: TestClient) -> None:
+    """回归：assistant 消息带 tool_calls（DB 存 JSON 字符串）时 GET 详情不 500。
+
+    tool_calls 列在 DB 是 Text(JSON 字符串)，响应 schema 需把它反序列化为 list，
+    否则 AgentMessage.model_validate 抛 ValidationError -> 500。
+    """
+    import asyncio
+
+    from app.core.db import get_session_factory
+    from app.repositories.agent_repo import AgentRepository
+
+    tool_calls = [
+        {
+            "id": "call_1",
+            "function": {"name": "list_knowledge_bases", "arguments": "{}"},
+        }
+    ]
+
+    async def _setup() -> str:
+        async with get_session_factory()() as s:
+            repo = AgentRepository(s)
+            sess = await repo.create_session(title="T")
+            await repo.create_message(
+                session_id=sess.id, role="assistant",
+                content="我来列一下知识库", tool_calls=tool_calls,
+            )
+            return sess.id
+
+    sid = asyncio.run(_setup())
+
+    resp = client.get(f"/api/agent/sessions/{sid}")
+    assert resp.status_code == 200
+    msg = resp.json()["messages"][0]
+    assert isinstance(msg["tool_calls"], list)
+    assert msg["tool_calls"][0]["function"]["name"] == "list_knowledge_bases"
+    assert msg["tool_calls"][0]["function"]["arguments"] == "{}"
+
+
 def test_delete_session(client: TestClient) -> None:
     """DELETE 后 GET 返回 404。"""
     create = client.post("/api/agent/sessions", json={"title": "X"})

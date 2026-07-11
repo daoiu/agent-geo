@@ -37,11 +37,32 @@ def build_messages(history: list[dict]) -> list[dict]:
       {"role": "user"|"assistant"|"tool"|"system", "content": str|None, ...}
 
     特殊处理：
-    - assistant 消息的 tool_calls.arguments 可能是 JSON 字符串（DB 存储），
-      要反序列化为 dict（LLM 需要）
+    - assistant 消息的 tool_calls.arguments 必须是 JSON **字符串**（OpenAI 协议要求，
+      DB 也以字符串存储）；这里原样透传，dict 则序列化回字符串，绝不发对象。
     - tool 消息必须带 tool_call_id（OpenAI 协议要求）
+    - **配对保证**：只保留有对应 tool 结果的 tool_call；丢弃 dangling 的
+      （HumanConfirmation / 被中断的流会留下无结果的 tool_call），并跳过孤儿 tool
+      结果。否则严格 provider 报 'tool call result does not follow tool call' 400。
     - 系统 prompt 总是作为第一条注入
     """
+    # 先扫出「已有结果」的 tool_call_id（存在对应 tool 消息）与「被 assistant 声明」的
+    # tool_call_id；只有两者交集(kept_ids)才是可安全重放的配对。
+    resolved_ids: set[str] = {
+        msg["tool_call_id"]
+        for msg in history
+        if msg.get("role") == "tool" and msg.get("tool_call_id")
+    }
+    declared_ids: set[str] = set()
+    for msg in history:
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            tc_raw = msg["tool_calls"]
+            if isinstance(tc_raw, str):
+                tc_raw = json.loads(tc_raw)
+            for tc in tc_raw:
+                if tc.get("id"):
+                    declared_ids.add(tc["id"])
+    kept_ids = resolved_ids & declared_ids
+
     out: list[dict] = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
 
     for msg in history:
@@ -59,36 +80,48 @@ def build_messages(history: list[dict]) -> list[dict]:
                 # 2. 简化风格：{tool, arguments}
                 normalized = []
                 for tc in tc_raw:
+                    tc_id = tc.get("id", "")
+                    # 只保留有对应 tool 结果的 call，避免 dangling tool_call
+                    if tc_id not in kept_ids:
+                        continue
                     if "function" in tc:
                         args = tc["function"]["arguments"]
                         normalized.append({
-                            "id": tc.get("id", ""),
+                            "id": tc_id,
                             "type": "function",
                             "function": {
                                 "name": tc["function"]["name"],
-                                "arguments": json.loads(args)
+                                "arguments": args
                                 if isinstance(args, str)
-                                else args,
+                                else json.dumps(args, ensure_ascii=False),
                             },
                         })
                     elif "tool" in tc:
                         # 简化风格 → 转换为 OpenAI 风格
+                        sargs = tc["arguments"]
                         normalized.append({
-                            "id": tc.get("id", ""),
+                            "id": tc_id,
                             "type": "function",
                             "function": {
                                 "name": tc["tool"],
-                                "arguments": tc["arguments"],
+                                "arguments": sargs
+                                if isinstance(sargs, str)
+                                else json.dumps(sargs, ensure_ascii=False),
                             },
                         })
-                asst["tool_calls"] = normalized
-            out.append(asst)
+                if normalized:
+                    asst["tool_calls"] = normalized
+            # 跳过既无内容又无有效 tool_calls 的空 assistant（dangling 丢弃后可能出现）
+            if asst.get("content") or asst.get("tool_calls"):
+                out.append(asst)
         elif role == "tool":
-            out.append({
-                "role": "tool",
-                "tool_call_id": msg["tool_call_id"],
-                "content": msg["content"],
-            })
+            # 只发能对上 assistant tool_call 的结果；孤儿 tool 跳过
+            if msg.get("tool_call_id") in kept_ids:
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": msg["tool_call_id"],
+                    "content": msg["content"],
+                })
         # 其他 role 忽略（防御性）
 
     return out

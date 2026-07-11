@@ -1,10 +1,11 @@
 """Pydantic models for v0.4 agent API."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AgentMessageRole(str, Enum):
@@ -40,6 +41,14 @@ class AgentMessage(BaseModel):
     tool_call_id: str | None
     pending_confirmation: bool
     created_at: datetime
+
+    @field_validator("tool_calls", mode="before")
+    @classmethod
+    def _parse_tool_calls(cls, v: object) -> object:
+        """DB 里 tool_calls 是 JSON 字符串(Text 列)，反序列化为 list 供响应用。"""
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
 
 
 class AgentSessionDetail(BaseModel):

@@ -55,8 +55,12 @@ def test_build_messages_converts_tool_role_messages() -> None:
     assert tool_msgs[0]["content"] == "result"
 
 
-def test_build_messages_serializes_tool_call_arguments_from_json_string() -> None:
-    """DB 存储的 tool_calls.arguments 是 JSON 字符串；LLM 需要对象。"""
+def test_build_messages_keeps_tool_call_arguments_as_json_string() -> None:
+    """OpenAI 协议要求 tool_calls.arguments 是 JSON 字符串（不是对象）。
+
+    DB 已存字符串，build_messages 必须原样透传给 LLM，不能 json.loads 成 dict，
+    否则严格 provider 报 400 'Mismatch type string with value object'。
+    """
     history = [
         {
             "role": "assistant",
@@ -71,16 +75,17 @@ def test_build_messages_serializes_tool_call_arguments_from_json_string() -> Non
                 }
             ],
         },
+        {"role": "tool", "tool_call_id": "tc1", "content": "ok"},
     ]
     messages = build_messages(history=history)
     asst = next(m for m in messages if m["role"] == "assistant")
     args = asst["tool_calls"][0]["function"]["arguments"]
-    assert isinstance(args, dict)
-    assert args["brand_name"] == "小米"
+    assert isinstance(args, str)
+    assert json.loads(args)["brand_name"] == "小米"
 
 
-def test_build_messages_passes_dict_arguments_unchanged() -> None:
-    """如果 arguments 已经是 dict，直接用。"""
+def test_build_messages_serializes_dict_arguments_to_json_string() -> None:
+    """若 arguments 意外是 dict，序列化成 JSON 字符串再发给 LLM（协议要求字符串）。"""
     history = [
         {
             "role": "assistant",
@@ -95,11 +100,90 @@ def test_build_messages_passes_dict_arguments_unchanged() -> None:
                 }
             ],
         },
+        {"role": "tool", "tool_call_id": "tc1", "content": "ok"},
     ]
     messages = build_messages(history=history)
     asst = next(m for m in messages if m["role"] == "assistant")
     args = asst["tool_calls"][0]["function"]["arguments"]
-    assert args == {"brand_name": "小米"}
+    assert isinstance(args, str)
+    assert json.loads(args)["brand_name"] == "小米"
+
+
+def test_build_messages_empty_args_stays_string_regression() -> None:
+    """回归（v0.6 P1.4）：无参工具 list_knowledge_bases 的 arguments '{}' 必须保持
+    JSON 字符串。曾因 build_messages json.loads 成对象 {} 触发 provider 400。"""
+    history = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "tc1",
+                    "function": {
+                        "name": "list_knowledge_bases",
+                        "arguments": "{}",
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "tc1", "content": "{}"},
+    ]
+    messages = build_messages(history=history)
+    asst = next(m for m in messages if m["role"] == "assistant")
+    args = asst["tool_calls"][0]["function"]["arguments"]
+    assert isinstance(args, str)
+    assert args == "{}"
+
+
+def test_build_messages_drops_dangling_tool_calls() -> None:
+    """回归：assistant 声明了 tool_calls 但没有对应 tool 结果（HumanConfirmation /
+    中断的流），必须丢弃该 tool_calls，否则 provider 报
+    'tool call result does not follow tool call' 400。content 仍保留。"""
+    history = [
+        {"role": "user", "content": "生成一篇"},
+        {
+            "role": "assistant",
+            "content": "准备生成文章：...",
+            "tool_calls": [
+                {"id": "dangling1", "function": {"name": "generate_article", "arguments": "{}"}}
+            ],
+        },
+        {"role": "user", "content": "算了"},
+    ]
+    messages = build_messages(history=history)
+    asst = next(m for m in messages if m["role"] == "assistant")
+    assert "tool_calls" not in asst  # dangling 被丢弃
+    assert asst["content"] == "准备生成文章：..."  # 文本保留
+
+
+def test_build_messages_skips_orphan_tool_result() -> None:
+    """孤儿 tool 结果（没有声明它的 assistant tool_call）被跳过，避免破坏配对。"""
+    history = [
+        {"role": "tool", "tool_call_id": "orphan", "content": "result"},
+    ]
+    messages = build_messages(history=history)
+    assert all(m.get("role") != "tool" for m in messages)
+
+
+def test_build_messages_keeps_only_resolved_tool_call_in_multi() -> None:
+    """一条 assistant 有多个 tool_calls，只保留有结果的那个。"""
+    history = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "a", "function": {"name": "list_knowledge_bases", "arguments": "{}"}},
+                {"id": "b", "function": {"name": "list_knowledge_bases", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "a", "content": "ra"},
+    ]
+    messages = build_messages(history=history)
+    asst = next(m for m in messages if m["role"] == "assistant")
+    ids = [tc["id"] for tc in asst["tool_calls"]]
+    assert ids == ["a"]
+    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 1
 
 
 def test_build_messages_skips_unknown_role() -> None:

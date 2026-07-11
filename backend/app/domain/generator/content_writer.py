@@ -9,6 +9,7 @@ from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 from app.core.config import Settings
 from app.domain.generator.prompt_builder import build as build_prompt
+from app.domain.llm_client import _normalize_base_url
 
 
 # Exceptions that should be silently absorbed as "LLM failure" (caller
@@ -72,7 +73,7 @@ class ContentWriter:
             # with the project's LLM timeout (v0.1 plan: 30s for LLM call).
             client = AsyncOpenAI(
                 api_key=self.settings.deepseek_api_key,
-                base_url=self.settings.deepseek_base_url,
+                base_url=_normalize_base_url(self.settings.deepseek_base_url),
             )
             response = await asyncio.wait_for(
                 client.chat.completions.create(

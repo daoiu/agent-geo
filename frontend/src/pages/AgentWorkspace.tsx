@@ -7,8 +7,9 @@ import type { AgentEvent, AgentMessage, AgentSessionDetail } from '@/types/v0.4'
 import { api, sendAgentMessageStream } from '@/api/client';
 import { useAgentSession } from '@/hooks/useAgentSession';
 import { ChatMessage } from '@/components/ChatMessage';
-import { ToolCallCard } from '@/components/ToolCallCard';
+import { AssistantTurn } from '@/components/AssistantTurn';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { buildTurnRows } from '@/lib/agentTimeline';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -279,11 +280,14 @@ export default function AgentWorkspace() {
           {isEmpty ? (
             <EmptyState />
           ) : (
-            session?.messages.map((m) => <ChatMessage key={m.id} message={m} />)
+            buildTurnRows(session?.messages ?? [], toolCalls).map((row, i) =>
+              row.kind === 'user' ? (
+                <ChatMessage key={row.message.id} message={row.message} />
+              ) : (
+                <AssistantTurn key={`turn-${i}`} items={row.items} />
+              ),
+            )
           )}
-          {toolCalls.map((tc) => (
-            <ToolCallCard key={tc.tool_call_id} display={tc} />
-          ))}
           {loading && (
             <div className="text-sm italic text-muted-foreground">agent 思考中...</div>
           )}

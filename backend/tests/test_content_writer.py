@@ -95,3 +95,32 @@ async def test_write_article_handles_400(writer: ContentWriter) -> None:
     )
     assert content == ""
     assert title is not None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_write_article_normalizes_bare_host_base_url() -> None:
+    """回归：base_url 是 bare host（无 /v1，如 MiniMax）时必须自动补 /v1。
+
+    否则请求打到 <host>/chat/completions → 404 → 被吞成空 content → 文章
+    '生成失败 / LLM 调用失败'。
+    """
+    settings = Settings(
+        deepseek_api_key="sk-test",
+        deepseek_base_url="https://api.minimaxi.com",  # 无 /v1
+        deepseek_model="m",
+        llm_call_timeout_s=10,
+    )
+    writer = ContentWriter(settings)
+    route = respx.post("https://api.minimaxi.com/v1/chat/completions").mock(
+        return_value=Response(
+            200, json={"choices": [{"message": {"content": "# 标题\n\n正文内容"}}]}
+        )
+    )
+
+    title, content = await writer.write_article(
+        brand="B", topic="T", keywords=[], style="neutral",
+        target_length=500, chunks=[],
+    )
+    assert route.called
+    assert "正文内容" in content

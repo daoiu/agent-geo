@@ -43,3 +43,6 @@ backend/data/
 
 # OS
 .DS_Store
+
+
+.playwright-mcp

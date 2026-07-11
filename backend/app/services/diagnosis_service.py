@@ -118,9 +118,11 @@ class DiagnosisService:
             # Use DeepSeek directly for summary
             from openai import AsyncOpenAI
 
+            from app.domain.llm_client import _normalize_base_url
+
             client = AsyncOpenAI(
                 api_key=self.settings.deepseek_api_key,
-                base_url=self.settings.deepseek_base_url,
+                base_url=_normalize_base_url(self.settings.deepseek_base_url),
                 timeout=15,
             )
             response = await client.chat.completions.create(
