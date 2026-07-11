@@ -6,7 +6,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agent_chat, agent_sessions, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
+from app.api import agent_chat, agent_sessions, articles, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
 from app.core.config import get_settings
 from app.core.db import dispose_db, init_db
 
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, prefix="/api")
     app.include_router(knowledge.router, prefix="/api")
     app.include_router(tasks.router, prefix="/api")
+    app.include_router(articles.router, prefix="/api")
     app.include_router(reviews.router, prefix="/api")
     app.include_router(publishers.configs_router, prefix="/api")
     app.include_router(publishers.jobs_router, prefix="/api")
