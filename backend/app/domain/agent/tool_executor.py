@@ -16,11 +16,14 @@ from __future__ import annotations
 import structlog
 
 from app.domain.agent.tools import (
+    CreateGenerationTaskArgs,
     DiagnoseBrandArgs,
     GenerateArticleArgs,
+    ListKnowledgeBasesArgs,
     SearchKnowledgeArgs,
     validate_tool_args,
 )
+from app.tasks.task_worker import schedule_task
 
 logger = structlog.get_logger()
 
@@ -50,8 +53,12 @@ class ToolExecutor:
             return await self._execute_diagnose_brand(validated)
         if tool_name == "search_knowledge":
             return await self._execute_search_knowledge(validated)
+        if tool_name == "list_knowledge_bases":
+            return await self._execute_list_knowledge_bases(validated)
         if tool_name == "generate_article":
             return await self._execute_generate_article(validated)
+        if tool_name == "create_generation_task":
+            return await self._execute_create_generation_task(validated)
 
         raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -135,41 +142,126 @@ class ToolExecutor:
             "top_suggestion": report.suggestions[0].title if report.suggestions else None,
         }
 
-    async def _execute_search_knowledge(self, args: SearchKnowledgeArgs) -> dict:
-        """搜索知识库（v0.5 hybrid: 向量 + 关键词 + RRF）。
+    async def _execute_list_knowledge_bases(
+        self, args: ListKnowledgeBasesArgs
+    ) -> dict:
+        """列出所有知识库（v0.6 P1.4）.
 
-        chunk content 截断到 500 字符，避免 LLM 上下文爆炸。
-        v0.5 升级：从纯关键词改为向量+关键词混合检索（接口不变）。
+        返回 [{kb_id, kb_name, doc_count, created_at}]，供 LLM 在模糊提问 /
+        不知道 kb_id 时先探索有哪些品牌资料库。doc_count 由 repo 的单 SQL
+        LEFT JOIN GROUP BY 一次性给出（无 N+1）。
         """
         from app.core.db import get_session_factory
         from app.repositories.knowledge_repo import KnowledgeRepository
 
         async with get_session_factory()() as session:
             repo = KnowledgeRepository(session)
-            chunks = await repo.search_chunks_hybrid(
+            kbs = await repo.list_kbs()
+
+        knowledge_bases = [
+            {
+                "kb_id": kb.id,
+                "kb_name": kb.name,
+                "doc_count": kb.doc_count,
+                "created_at": kb.created_at.isoformat() if kb.created_at else None,
+            }
+            for kb in kbs
+        ]
+        return {
+            "knowledge_bases": knowledge_bases,
+            "total_count": len(knowledge_bases),
+        }
+
+    @staticmethod
+    def _normalize_chunk(
+        hit: dict, *, kb_id: str | None, kb_name: str | None, doc_filename: str | None
+    ) -> dict:
+        """把一条召回命中归一化成统一 chunk shape（content 截断 500 字）.
+
+        两个 search 分支（单库 / 跨库）共用，kb_id / kb_name / doc_filename
+        由调用方按分支来源填入。
+        """
+        meta = hit.get("metadata", {}) or {}
+        content = (hit.get("content") or "")[:500]
+        return {
+            "id": hit["id"],
+            "doc_id": meta.get("doc_id"),
+            "chunk_index": meta.get("chunk_index"),
+            "content": content,
+            "content_length": len(content),
+            "kb_id": kb_id,
+            "kb_name": kb_name,
+            "doc_filename": doc_filename,
+            "rrf_score": hit.get("_rrf_score"),
+            "sources": hit.get("_sources", []),
+        }
+
+    async def _execute_search_knowledge(self, args: SearchKnowledgeArgs) -> dict:
+        """搜索知识库（v0.6 P1.4 双分支）.
+
+        kb_id 不传 → HybridSearch.search_across_kbs（跨库, P1.3）
+        kb_id 传   → KnowledgeRepository.search_chunks_hybrid（单库, v0.5）
+
+        chunk content 截断到 500 字符，避免 LLM 上下文爆炸。返回 shape 统一：
+        每个 chunk 都带 kb_name / doc_filename（可能为 None），result 带 scope。
+        """
+        if args.kb_id is None:
+            from app.services.hybrid_search import HybridSearch
+
+            hits = await HybridSearch().search_across_kbs(
+                query=args.query, top_k=args.limit,
+            )
+            chunks = [
+                self._normalize_chunk(
+                    h,
+                    kb_id=(h.get("metadata") or {}).get("kb_id"),
+                    kb_name=(h.get("metadata") or {}).get("kb_name"),
+                    doc_filename=(h.get("metadata") or {}).get("doc_filename"),
+                )
+                for h in hits
+            ]
+            return {
+                "kb_id": None,
+                "kb_name": None,
+                "query": args.query,
+                "chunks": chunks,
+                "total_found": len(chunks),
+                "scope": "all_knowledge_bases",
+            }
+
+        # kb_id 传：单库路径（v0.5 hybrid, 行为不变）
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from app.core.db import get_session_factory
+        from app.repositories.knowledge_repo import KnowledgeRepository
+
+        async with get_session_factory()() as session:
+            repo = KnowledgeRepository(session)
+            hits = await repo.search_chunks_hybrid(
                 kb_id=args.kb_id,
                 query=args.query,
                 top_k=args.limit,
             )
+            # 回查 KB name 用于 LLM 上下文；DB 层异常降级为 None，不阻断召回
+            try:
+                kb = await repo.get_kb(args.kb_id)
+                kb_name = kb.name if kb else None
+            except SQLAlchemyError:
+                kb_name = None
 
-        truncated: list[dict] = []
-        for c in chunks:
-            content = c["content"][:500]
-            truncated.append({
-                "id": c["id"],
-                "doc_id": c["metadata"].get("doc_id"),
-                "chunk_index": c["metadata"].get("chunk_index"),
-                "content": content,
-                "content_length": len(content),
-                "rrf_score": c.get("_rrf_score"),
-                "sources": c.get("_sources", []),
-            })
-
+        chunks = [
+            self._normalize_chunk(
+                h, kb_id=args.kb_id, kb_name=kb_name, doc_filename=None,
+            )
+            for h in hits
+        ]
         return {
             "kb_id": args.kb_id,
+            "kb_name": kb_name,
             "query": args.query,
-            "chunks": truncated,
+            "chunks": chunks,
             "total_found": len(chunks),
+            "scope": f"kb:{args.kb_id}",
         }
 
     async def _execute_generate_article(self, args: GenerateArticleArgs) -> dict:
@@ -284,4 +376,48 @@ class ToolExecutor:
             "content_preview": content_preview,
             "word_count": word_count,
             "next_step": "如满意此预览，请到 /tasks/new 触发完整生成任务",
+        }
+
+    async def _execute_create_generation_task(
+        self, args: CreateGenerationTaskArgs
+    ) -> dict:
+        """创建内容生成任务（v0.2 TaskCreator 包装）.
+
+        与 generate_article 不同：这里**不抛 HumanConfirmationRequired**，
+        立即落 v0.2 tasks 表 + 触发 worker；agent turn 即结束。
+        """
+        from app.core.db import get_session_factory
+        from app.repositories.knowledge_repo import KnowledgeRepository
+        from app.repositories.task_repo import TaskRepository
+
+        async with get_session_factory()() as session:
+            kb_repo = KnowledgeRepository(session)
+            kb = await kb_repo.get_kb(args.kb_id)
+            if kb is None:
+                raise ValueError(f"knowledge base not found: {args.kb_id}")
+
+            task_repo = TaskRepository(session)
+            # 自动生成 task name = brand + topic 截断
+            task_name = f"{args.brand} - {args.topic}"[:200]
+            task = await task_repo.create_task(
+                name=task_name,
+                kb_id=args.kb_id,
+                brand=args.brand,
+                topic=args.topic,
+                keywords=args.keywords,
+                article_count=args.article_count,
+                style=args.style,
+                target_length=args.target_length,
+            )
+            # TaskRepository.create_task 内部已 commit，无需重复提交
+
+        # 触发后台 worker（v0.2 task_worker 已有）
+        schedule_task(task.id)
+
+        return {
+            "task_id": task.id,
+            "kb_id": args.kb_id,
+            "article_count": args.article_count,
+            "status": task.status,
+            "next_step": f"已创建任务。请到 /tasks/{task.id} 详情页审核 {args.article_count} 篇草稿。",
         }

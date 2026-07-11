@@ -17,13 +17,16 @@ from app.domain.agent.tools import (
 
 
 class TestToolRegistry:
-    def test_three_tools_registered(self) -> None:
-        """Exactly 3 tools are exposed to the LLM."""
-        assert len(TOOLS) == 3
+    def test_five_tools_registered(self) -> None:
+        """After P1.4, exactly 5 tools are exposed to the LLM."""
+        assert len(TOOLS) == 5
 
     def test_tool_names_match_enum(self) -> None:
-        """TOOL_NAMES equals the three tool names."""
-        assert TOOL_NAMES == {"diagnose_brand", "search_knowledge", "generate_article"}
+        """TOOL_NAMES equals the five tool names."""
+        assert TOOL_NAMES == {
+            "diagnose_brand", "search_knowledge", "generate_article",
+            "list_knowledge_bases", "create_generation_task",
+        }
 
     def test_each_tool_has_function_type(self) -> None:
         """Each tool entry is OpenAI-compatible function-call type."""
@@ -111,6 +114,15 @@ class TestValidateSearchArgs:
         assert args.kb_id == "kb-123"
         assert args.query == "产品功能"
         assert args.limit == 5  # default
+
+    def test_kb_id_optional(self) -> None:
+        """v0.6 P1.4: kb_id 不传时默认为 None（跨库路径）."""
+        args = validate_tool_args(
+            "search_knowledge",
+            {"query": "云吞"},
+        )
+        assert args.kb_id is None
+        assert args.query == "云吞"
 
     def test_custom_limit(self) -> None:
         """Custom limit within bounds accepted."""
@@ -227,3 +239,73 @@ class TestToolNameEnum:
         assert ToolName.DIAGNOSE_BRAND.value == "diagnose_brand"
         assert ToolName.SEARCH_KNOWLEDGE.value == "search_knowledge"
         assert ToolName.GENERATE_ARTICLE.value == "generate_article"
+
+
+class TestListKnowledgeBasesTool:
+    def test_five_tools_registered(self) -> None:
+        """After P1.4, exactly 5 tools are exposed."""
+        assert len(TOOLS) == 5
+
+    def test_tool_names_match_enum(self) -> None:
+        """TOOL_NAMES contains 5 entries incl list + create_generation_task."""
+        from app.domain.agent.tools import TOOL_NAMES as TN
+        assert TN == {
+            "diagnose_brand", "search_knowledge", "generate_article",
+            "list_knowledge_bases", "create_generation_task",
+        }
+
+    def test_list_schema_has_no_params(self) -> None:
+        """list_knowledge_bases 函数没有参数，但保留空 properties 给 LLM 看."""
+        schema = get_tool_schema("list_knowledge_bases")
+        assert schema["name"] == "list_knowledge_bases"
+        assert "description" in schema
+        assert schema["parameters"]["type"] == "object"
+        assert schema["parameters"]["properties"] == {}
+        assert schema["parameters"].get("required", []) == []
+
+    def test_list_validator_accepts_empty(self) -> None:
+        """validator 接受空 dict（list 工具没有必填参数）."""
+        validated = validate_tool_args("list_knowledge_bases", {})
+        assert validated is not None
+
+
+class TestValidateCreateTaskArgs:
+    def test_valid_args(self) -> None:
+        args = validate_tool_args(
+            "create_generation_task",
+            {
+                "kb_id": "kb-123",
+                "brand": "北北云吞",
+                "topic": "玉林老字号云吞店介绍",
+                "keywords": ["云吞", "皮薄"],
+                "article_count": 5,
+            },
+        )
+        from app.domain.agent.tools import CreateGenerationTaskArgs
+        assert isinstance(args, CreateGenerationTaskArgs)
+        assert args.style == "neutral"  # default
+        assert args.target_length == 1500  # default
+
+    def test_article_count_zero_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            validate_tool_args(
+                "create_generation_task",
+                {
+                    "kb_id": "kb", "brand": "X",
+                    "topic": "足够长的 topic 内容",
+                    "keywords": ["x"],
+                    "article_count": 0,
+                },
+            )
+
+    def test_article_count_too_high_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            validate_tool_args(
+                "create_generation_task",
+                {
+                    "kb_id": "kb", "brand": "X",
+                    "topic": "足够长的 topic 内容",
+                    "keywords": ["x"],
+                    "article_count": 100,
+                },
+            )

@@ -1,9 +1,11 @@
 """v0.4 Agent 工具定义：function calling schema + Pydantic 参数校验。
 
-工具集（3 个）：
+工具集（v0.6 P1.4 起 5 个）：
 - diagnose_brand：v0.1 诊断（读，包装 DiagnosisService）
-- search_knowledge：v0.2 知识库检索（读，包装 KnowledgeRepository，chunk 截断 500 字）
-- generate_article：v0.2 文章生成（写，包装 ContentWriter，需 human 确认，仅返回预览）
+- search_knowledge：知识库检索（读，kb_id 可选：传=单库 v0.5 hybrid / 不传=跨库 P1.3）
+- generate_article：v0.2 单篇文章生成（写，包装 ContentWriter，需 human 确认，仅返回预览）
+- list_knowledge_bases：列出所有知识库（读，含 doc_count，供 LLM 发现可用品牌库）
+- create_generation_task：批量生成任务（写，包装 v0.2 TaskRepository，不需确认）
 
 OpenAI Function Calling 协议兼容 DeepSeek / Kimi。
 """
@@ -16,11 +18,13 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 class ToolName(str, Enum):
-    """三个工具的稳定名称。"""
+    """五个工具的稳定名称。"""
 
     DIAGNOSE_BRAND = "diagnose_brand"
     SEARCH_KNOWLEDGE = "search_knowledge"
     GENERATE_ARTICLE = "generate_article"
+    LIST_KNOWLEDGE_BASES = "list_knowledge_bases"
+    CREATE_GENERATION_TASK = "create_generation_task"
 
 
 # ---------------------------------------------------------------------------
@@ -37,9 +41,9 @@ class DiagnoseBrandArgs(BaseModel):
 
 
 class SearchKnowledgeArgs(BaseModel):
-    """search_knowledge 工具的参数。"""
+    """search_knowledge 工具的参数 (v0.6 P1.4: kb_id 可选)."""
 
-    kb_id: str = Field(..., min_length=1)
+    kb_id: str | None = Field(None, min_length=1)  # 不传=跨库 (P1.3)
     query: str = Field(..., min_length=1, max_length=500)
     limit: int = Field(5, ge=1, le=10)  # 默认 5，最大 10（与 schema 描述一致）
 
@@ -51,6 +55,29 @@ class GenerateArticleArgs(BaseModel):
     brand: str = Field(..., min_length=1, max_length=100)
     topic: str = Field(..., min_length=5, max_length=500)
     keywords: list[str] = Field(..., min_length=1, max_length=20)
+    style: Literal["neutral", "professional", "casual"] = "neutral"
+    target_length: int = Field(1500, ge=300, le=10000)
+
+
+class ListKnowledgeBasesArgs(BaseModel):
+    """list_knowledge_bases 工具的参数（无参，工具签名占位）."""
+
+    # Pydantic model 必须继承 BaseModel 但允许 0 字段（OpenAI schema 的空 properties）。
+    model_config = {"extra": "forbid"}
+
+
+class CreateGenerationTaskArgs(BaseModel):
+    """create_generation_task 工具的参数（v0.6 P1.4 — 包装 v0.2 TaskCreate）.
+
+    与 app.models.task.TaskCreate 对齐，但去掉 name（前端的 name 会从
+    brand+topic 自动拼接生成，避免 LLM 多写一个不必要字段）。
+    """
+
+    kb_id: str = Field(..., min_length=1)
+    brand: str = Field(..., min_length=1, max_length=100)
+    topic: str = Field(..., min_length=5, max_length=500)
+    keywords: list[str] = Field(..., min_length=1, max_length=20)
+    article_count: int = Field(5, ge=1, le=20)
     style: Literal["neutral", "professional", "casual"] = "neutral"
     target_length: int = Field(1500, ge=300, le=10000)
 
@@ -93,16 +120,20 @@ _DIAGNOSE_SCHEMA: dict = {
 _SEARCH_SCHEMA: dict = {
     "name": "search_knowledge",
     "description": (
-        "在指定知识库中搜索与查询相关的资料片段。需要知识库 ID 和搜索关键词。"
-        "返回最相关的几个资料片段（含内容）。注意：agent 只能查询已存在的知识库，"
-        "不能创建/修改/删除。"
+        "在指定知识库或全局搜索与查询相关的资料片段。"
+        "kb_id 不传或 null 时，跨所有知识库做 hybrid 召回（向量 + 关键词 + RRF）。"
+        "kb_id 传时则限定该 KB 召回。返回最相关的几个资料片段 "
+        "（含 KB 名称、来源文档、向量/关键词命中来源标签）。"
+        "agent 只能查询已存在的知识库，不能创建/修改/删除。"
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "kb_id": {
                 "type": "string",
-                "description": "知识库 ID（UUID）",
+                "description": (
+                    "知识库 ID（UUID）；不传则跨所有知识库全局检索。"
+                ),
             },
             "query": {
                 "type": "string",
@@ -114,7 +145,7 @@ _SEARCH_SCHEMA: dict = {
                 "default": 5,
             },
         },
-        "required": ["kb_id", "query"],
+        "required": ["query"],
     },
 }
 
@@ -163,6 +194,72 @@ _GENERATE_SCHEMA: dict = {
 }
 
 
+_LIST_SCHEMA: dict = {
+    "name": "list_knowledge_bases",
+    "description": (
+        "列出所有已创建的知识库，返回 [{kb_id, kb_name, doc_count, created_at}]。"
+        "在用户模糊提问（如「我有哪些品牌资料库」「有哪些品牌」）或 LLM 不知道该查哪个 KB 时调用。"
+        "调用 search_knowledge 之前也应该先调这个工具确认 kb_id 存在。"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+}
+
+
+_CREATE_TASK_SCHEMA: dict = {
+    "name": "create_generation_task",
+    "description": (
+        "创建一个内容生成任务（v0.2 TaskCreator），用 kb_id 指定的 KB 内容生成 N 篇文章草稿。"
+        "返回 task_id。生成 + 审核 + 发布由 v0.2 任务系统负责，"
+        "agent 这里只需要触发任务即可，**不需要在会话内循环**。"
+        "生成的 N 篇文章在 /tasks/{task_id} 详情页审核 → 发布。"
+        "适用：用户说「给我生成 X 品牌 N 篇文章」「批量生成 X 文章」，N>1 时务必用这个工具。"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "kb_id": {
+                "type": "string",
+                "description": "知识库 ID（UUID）",
+            },
+            "brand": {
+                "type": "string",
+                "description": "目标品牌名",
+            },
+            "topic": {
+                "type": "string",
+                "description": "文章主题（至少 5 个字）",
+            },
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "关键词（至少 1 个）",
+            },
+            "article_count": {
+                "type": "integer",
+                "description": "生成文章数量，默认 5，最大 20",
+                "default": 5,
+            },
+            "style": {
+                "type": "string",
+                "enum": ["neutral", "professional", "casual"],
+                "description": "写作风格，默认 neutral",
+                "default": "neutral",
+            },
+            "target_length": {
+                "type": "integer",
+                "description": "每篇目标字数，默认 1500",
+                "default": 1500,
+            },
+        },
+        "required": ["kb_id", "brand", "topic", "keywords", "article_count"],
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # 公共导出
 # ---------------------------------------------------------------------------
@@ -172,6 +269,8 @@ TOOLS: list[dict] = [
     {"type": "function", "function": _DIAGNOSE_SCHEMA},
     {"type": "function", "function": _SEARCH_SCHEMA},
     {"type": "function", "function": _GENERATE_SCHEMA},
+    {"type": "function", "function": _LIST_SCHEMA},
+    {"type": "function", "function": _CREATE_TASK_SCHEMA},
 ]
 
 
@@ -179,6 +278,8 @@ TOOL_NAMES: set[str] = {
     ToolName.DIAGNOSE_BRAND.value,
     ToolName.SEARCH_KNOWLEDGE.value,
     ToolName.GENERATE_ARTICLE.value,
+    ToolName.LIST_KNOWLEDGE_BASES.value,
+    ToolName.CREATE_GENERATION_TASK.value,
 }
 
 
@@ -201,6 +302,8 @@ _VALIDATORS: dict[str, type[BaseModel]] = {
     "diagnose_brand": DiagnoseBrandArgs,
     "search_knowledge": SearchKnowledgeArgs,
     "generate_article": GenerateArticleArgs,
+    "list_knowledge_bases": ListKnowledgeBasesArgs,
+    "create_generation_task": CreateGenerationTaskArgs,
 }
 
 

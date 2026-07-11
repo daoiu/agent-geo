@@ -2,7 +2,7 @@
 
 设计要点：
 - 自写循环（不引 LangGraph / LangChain）
-- MAX_REACT_ITERATIONS = 5 防无限循环
+- MAX_REACT_ITERATIONS = 7 防无限循环
 - 流式 yield SSE 事件（assistant_message / tool_call_start / tool_call_result /
   human_confirmation_required / turn_complete / max_iterations_reached）
 - 写类工具抛 HumanConfirmationRequired 暂停循环
@@ -22,7 +22,7 @@ from app.domain.llm_client import LLMClient
 from app.models.orm_v04 import AgentMessageORM
 from app.repositories.agent_repo import AgentRepository
 
-MAX_REACT_ITERATIONS = 5
+MAX_REACT_ITERATIONS = 7  # v0.6 P1.4: 5 → 7，留余量给 list → search → create_task
 
 
 # ===========================================================================
