@@ -225,6 +225,11 @@ class MemoryService:
         messages: list[dict],
         session_id: str | None = None,
     ) -> int:
+        # Phase 2 门控:最近 user 文本过短则跳过(不调 LLM)
+        recent = self._recent_user_text(messages)
+        if len(recent.strip()) < get_settings().memory_extract_min_chars:
+            return 0
+
         dialogue_parts: list[str] = []
         for msg in messages[-10:]:
             role = msg.get("role", "?")
@@ -283,6 +288,16 @@ class MemoryService:
             existing_match = await self.repo.get_by_name(scope, name)
             if existing_match:
                 continue
+            # Phase 2 向量近邻语义去重(失败降级 exact-name only)
+            try:
+                cv = EmbeddingService.embed([self._embed_text(name, desc)])[0]
+                nearest = MemoryVectorIndex().query(cv, scope, top_k=1)
+                if nearest and nearest[0]["distance"] is not None and \
+                        nearest[0]["distance"] < get_settings().memory_dedup_max_distance:
+                    continue
+            except Exception as e:  # noqa: BLE001
+                logger.warning("extract_dedup_vector_failed",
+                               scope=scope, name=name, error=str(e))
             await self.write_memory(
                 scope=scope,
                 name=name,

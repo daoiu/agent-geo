@@ -260,7 +260,7 @@ async def test_extract_dedup_by_name(db_session):
     svc = MemoryService(db_session)
     await svc.write_memory(scope="d", name="bb-cloud", type="project",
                             description="北北云吞", body="...")
-    msgs = [{"role": "user", "content": "..."}]
+    msgs = [{"role": "user", "content": "请记住我的这些偏好设置"}]
 
     with patch("app.domain.agent.memory.LLMClient") as MockLLM:
         MockLLM.return_value.simple_chat = AsyncMock(return_value=LLM_NEW_EXTRACT)
@@ -276,7 +276,7 @@ async def test_extract_invalid_json_noop(db_session):
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
-    msgs = [{"role": "user", "content": "..."}]
+    msgs = [{"role": "user", "content": "请记住我的这些偏好设置"}]
     with patch("app.domain.agent.memory.LLMClient") as MockLLM:
         MockLLM.return_value.simple_chat = AsyncMock(return_value="not json")
         count = await svc.extract("d", msgs, session_id="s1")
@@ -299,7 +299,7 @@ async def test_extract_records_session_id(db_session):
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
-    msgs = [{"role": "user", "content": "..."}]
+    msgs = [{"role": "user", "content": "请记住我的这些偏好设置"}]
     with patch("app.domain.agent.memory.LLMClient") as MockLLM:
         MockLLM.return_value.simple_chat = AsyncMock(return_value=LLM_NEW_EXTRACT)
         await svc.extract("d", msgs, session_id="sess-origin")
@@ -371,7 +371,7 @@ async def test_consolidate_triggers_via_extract(db_session):
 
     # 阈值调到 1:第一篇写入后立即触发
     svc = MemoryService(db_session, threshold=1)
-    msgs = [{"role": "user", "content": "..."}]
+    msgs = [{"role": "user", "content": "请记住我的这些偏好设置"}]
     with patch("app.domain.agent.memory.LLMClient") as MockLLM:
         # 第一次调:extract 返 LLM_NEW_EXTRACT;第二次调:consolidate
         # 因为 threshold=1,extract 后立即 consolidate
@@ -446,3 +446,54 @@ async def test_ensure_vectors_backfills_missing(db_session):
         MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
         await svc._ensure_vectors("d")
         MockVidx.return_value.add.assert_called_once()
+
+
+# ============================================================================
+# Phase 2 — extract 门控 + 向量去重
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_extract_gate_skips_short_turn(db_session):
+    from app.domain.agent.memory import MemoryService
+    svc = MemoryService(db_session)
+    msgs = [{"role": "user", "content": "好"}]  # < 8 字
+    with patch("app.domain.agent.memory.LLMClient") as MockLLM:
+        MockLLM.return_value.simple_chat = AsyncMock(return_value="[]")
+        count = await svc.extract("d", msgs, session_id="s1")
+    assert count == 0
+    MockLLM.return_value.simple_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_extract_dedup_by_vector_distance(db_session):
+    from app.domain.agent.memory import MemoryService
+    svc = MemoryService(db_session)
+    await svc.write_memory(scope="d", name="简洁", type="user",
+                           description="喜欢简洁", body="x")  # autouse 已 mock 向量
+    llm_out = '[{"name":"精炼","type":"user","description":"回复要精炼","body":"z"}]'
+    msgs = [{"role": "user", "content": "以后回复都精炼一点谢谢"}]
+    with patch("app.domain.agent.memory.LLMClient") as MockLLM, \
+         patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockLLM.return_value.simple_chat = AsyncMock(return_value=llm_out)
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        MockVidx.return_value.query.return_value = [{"id": "x", "distance": 0.05}]
+        count = await svc.extract("d", msgs, session_id="s1")
+    assert count == 0  # 语义重复被拦
+
+
+@pytest.mark.asyncio
+async def test_extract_writes_when_distant(db_session):
+    from app.domain.agent.memory import MemoryService
+    svc = MemoryService(db_session)
+    llm_out = '[{"name":"潮汕","type":"project","description":"北北云吞潮汕口味","body":"z"}]'
+    msgs = [{"role": "user", "content": "记住北北云吞是潮汕口味"}]
+    with patch("app.domain.agent.memory.LLMClient") as MockLLM, \
+         patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockLLM.return_value.simple_chat = AsyncMock(return_value=llm_out)
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        MockVidx.return_value.query.return_value = [{"id": "other", "distance": 0.9}]
+        count = await svc.extract("d", msgs, session_id="s1")
+    assert count == 1  # 距离远,正常写入
