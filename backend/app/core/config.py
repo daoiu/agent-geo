@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # Timeouts
     diagnosis_total_timeout_s: int = 90
-    llm_call_timeout_s: int = 30
+    llm_call_timeout_s: int = 120  # v0.6 P1.5: MiniMax + 长 prompt + RAG chunks 30s 不够
     crawl_timeout_s: int = 10
 
     # Knowledge base / v0.2
@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     hybrid_top_k_vector: int = 20
     hybrid_top_k_keyword: int = 20
     hybrid_rrf_k: int = 60
+
+    # v0.6 P1.6 — L2 跨会话记忆
+    memory_consolidate_threshold: int = 50  # 行数 ≥ 此值触发 consolidate
 
     @property
     def enabled_providers(self) -> list[str]:
