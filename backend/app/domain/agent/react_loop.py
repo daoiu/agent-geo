@@ -295,7 +295,13 @@ async def _drive_react_loop(
 
     agg = _new_metrics()
     for _iteration in range(MAX_REACT_ITERATIONS):
-        messages = build_messages(history, memory_index_segment=memory_index_segment)
+        messages = build_messages(
+            history,
+            memory_index_segment=memory_index_segment,
+            window_messages=settings.context_window_messages,
+            tool_result_max_chars=settings.tool_result_max_chars,
+            tool_result_keep_recent=settings.tool_result_keep_recent,
+        )
         messages = _apply_memory_prepend(messages, memory_block)
 
         response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
