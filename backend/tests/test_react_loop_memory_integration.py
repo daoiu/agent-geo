@@ -14,6 +14,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _mock_memory_vectors():
+    """默认 mock 向量依赖,杜绝真加载 bge(沙箱无外网会卡死)/写真 ChromaDB。
+    个别用例的 with patch(...) 会在其块内覆盖。"""
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockEmb.embed.side_effect = lambda texts: [[1.0] + [0.0] * 511 for _ in texts]
+        MockVidx.return_value.ids_in_scope.return_value = set()
+        MockVidx.return_value.query.return_value = []
+        yield
+
+
 def _fake_chat_factory(captured: list[list[dict[str, Any]]]):
     """造一个 async fake 捕获 messages 给后续断言,LLM 返回无 tool_calls 直接 turn_complete。"""
 
@@ -94,7 +106,7 @@ async def test_user_turn_includes_relevant_memory_block(db_session):
     from app.domain.agent.react_loop import run_agent_turn
 
     svc = MemoryService(db_session)
-    await svc.write_memory(
+    m = await svc.write_memory(
         scope="device-int", name="bb-wonton", type="project",
         description="wonton brand facts", body="潮汕口味,堂食为主",
         session_id="s-int-2",
@@ -104,16 +116,19 @@ async def test_user_turn_includes_relevant_memory_block(db_session):
     fake_chat = _fake_chat_factory(captured)
     with patch("app.domain.agent.react_loop.LLMClient") as MockLLM:
         MockLLM.return_value.chat_with_tools = fake_chat
-        with patch("app.domain.agent.memory.LLMClient") as MockMemLLM:
-            # LLM select_relevant 选 index 0(只有一条,所以就是它)
-            MockMemLLM.return_value.simple_chat = AsyncMock(return_value="[0]")
+        with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+             patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+            # 向量 select 命中这条 memory
+            MockEmb.embed.side_effect = lambda texts: [[1.0] + [0.0] * 511 for _ in texts]
+            MockVidx.return_value.ids_in_scope.return_value = {m["id"]}
+            MockVidx.return_value.query.return_value = [{"id": m["id"], "distance": 0.1}]
             events = []
             async for e in run_agent_turn(
                 session_id="s-int-2", user_message="see memory", device_id="device-int"
             ):
                 events.append(e)
 
-    user_msg = next(m for m in captured[0] if m["role"] == "user")
+    user_msg = next(m2 for m2 in captured[0] if m2["role"] == "user")
     assert "<relevant_memories>" in user_msg["content"]
     assert "潮汕口味" in user_msg["content"]
 

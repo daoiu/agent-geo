@@ -177,6 +177,10 @@ class MemoryService:
         if not recent.strip():
             return []
 
+        rows = await self.repo.list_by_scope(scope)
+        if not rows:
+            return []
+
         await self._ensure_vectors(scope)
         try:
             qv = EmbeddingService.embed([recent])[0]
@@ -190,7 +194,6 @@ class MemoryService:
         except Exception as e:  # noqa: BLE001
             logger.warning("select_relevant_vector_failed",
                            scope=scope, error=str(e))
-            rows = await self.repo.list_by_scope(scope)
             return rows[:k]
 
     async def load_relevant_memories(
