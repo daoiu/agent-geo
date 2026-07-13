@@ -1,11 +1,25 @@
 """MemoryService 测试 — 7 函数 + threshold + Settings。
 
 LLM 调用全部 mock,沿用 v0.5 `patch("...LLMClient")` 模式。
+Phase 2:EmbeddingService + MemoryVectorIndex 由 autouse fixture 默认 mock,
+杜绝真加载 bge(沙箱无外网会卡死)/写真 ChromaDB。个别用例用自己的 with patch 覆盖。
 """
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _mock_memory_vectors():
+    """全文件默认 mock 向量依赖:EmbeddingService.embed 返回假向量,
+    MemoryVectorIndex 为 MagicMock。个别用例的 with patch(...) 会在其块内覆盖。"""
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockEmb.embed.side_effect = lambda texts: [[1.0] + [0.0] * 511 for _ in texts]
+        MockVidx.return_value.ids_in_scope.return_value = set()
+        MockVidx.return_value.query.return_value = []
+        yield
 
 
 LLM_NEW_EXTRACT = json.dumps([
@@ -107,74 +121,99 @@ async def test_build_segment_format(db_session):
 
 
 @pytest.mark.asyncio
-async def test_select_relevant_uses_llm(db_session):
-    """LLM 选 index → 返回对应 row。"""
+async def test_select_relevant_uses_vector_no_llm(db_session):
+    """向量选中最相关记忆,且不调 LLM。"""
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
-    await svc.write_memory(scope="d", name="bb", type="project",
-                            description="wonton brand", body="...")
-    await svc.write_memory(scope="d", name="style", type="feedback",
-                            description="writing style", body="...")
-    msgs = [{"role": "user", "content": "I want to write about the wonton brand"}]
-
-    # list_by_scope 按 updated_at DESC,所以最后一次写入的 style 在 index 0
-    with patch("app.domain.agent.memory.LLMClient") as MockLLM:
-        MockLLM.return_value.simple_chat = AsyncMock(return_value="[0]")
+    with patch("app.domain.agent.memory.MemoryVectorIndex"), \
+         patch("app.domain.agent.memory.EmbeddingService"):
+        m1 = await svc.write_memory(scope="d", name="简洁", type="user",
+                                    description="喜欢简洁回复", body="x")
+        await svc.write_memory(scope="d", name="潮汕", type="project",
+                               description="北北云吞潮汕口味", body="y")
+    msgs = [{"role": "user", "content": "回复能不能简洁点"}]
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx, \
+         patch("app.domain.agent.memory.LLMClient") as MockLLM:
+        MockVidx.return_value.ids_in_scope.return_value = {m1["id"]}
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        MockVidx.return_value.query.return_value = [{"id": m1["id"], "distance": 0.1}]
+        MockLLM.return_value.simple_chat = AsyncMock(
+            side_effect=AssertionError("select 不该调 LLM"))
         result = await svc.select_relevant("d", msgs, k=5)
-
     assert len(result) == 1
-    # selected row 是 index 0,即"最新写入的那条"
-    assert result[0]["name"] in {"bb", "style"}
+    assert result[0]["id"] == m1["id"]
 
 
 @pytest.mark.asyncio
-async def test_select_relevant_keyword_fallback(db_session):
-    """LLM 失败时降级关键词匹配 — 英文 token 可命中。"""
+async def test_select_relevant_empty_recent_returns_empty(db_session):
+    """无 user 文本 → 立即 []。"""
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
-    await svc.write_memory(
-        scope="d", name="bcloud", type="project",
-        description="wonton brand info", body="",
-    )
-    msgs = [{"role": "user", "content": "Tell me about the wonton brand please"}]
-
-    with patch("app.domain.agent.memory.LLMClient") as MockLLM:
-        MockLLM.return_value.simple_chat = AsyncMock(side_effect=Exception("API down"))
-        result = await svc.select_relevant("d", msgs, k=5)
-
-    assert any(m["name"] == "bcloud" for m in result)
+    with patch("app.domain.agent.memory.MemoryVectorIndex"), \
+         patch("app.domain.agent.memory.EmbeddingService"):
+        await svc.write_memory(scope="d", name="a", type="user",
+                               description="da", body="b")
+    result = await svc.select_relevant("d", [{"role": "assistant", "content": "hi"}])
+    assert result == []
 
 
 @pytest.mark.asyncio
-async def test_select_relevant_empty_index_returns_empty(db_session):
-    """scope 没记忆 → 立即返回 []。"""
+async def test_select_relevant_empty_scope_returns_empty(db_session):
+    """scope 没记忆 → []。"""
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
-    msgs = [{"role": "user", "content": "问点什么"}]
-    with patch("app.domain.agent.memory.LLMClient") as MockLLM:
-        MockLLM.return_value.simple_chat = AsyncMock(side_effect=AssertionError("should not call"))
+    msgs = [{"role": "user", "content": "问点什么呢"}]
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockVidx.return_value.ids_in_scope.return_value = set()
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        MockVidx.return_value.query.return_value = []
         result = await svc.select_relevant("empty-scope", msgs)
     assert result == []
 
 
 @pytest.mark.asyncio
-async def test_load_relevant_prepends_block(db_session):
-    """load_relevant_memories 返回 <relevant_memories>...</> 格式。"""
+async def test_select_relevant_vector_fail_recency_fallback(db_session):
+    """向量失败 → 降级 recency top-k。"""
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
-    await svc.write_memory(scope="d", name="a", type="user", description="x", body="内容")
-    msgs = [{"role": "user", "content": "问"}]
+    with patch("app.domain.agent.memory.MemoryVectorIndex"), \
+         patch("app.domain.agent.memory.EmbeddingService"):
+        await svc.write_memory(scope="d", name="a", type="user",
+                               description="da", body="b")
+    msgs = [{"role": "user", "content": "随便问点什么"}]
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockVidx.return_value.ids_in_scope.return_value = set()
+        MockEmb.embed.side_effect = Exception("bge 加载失败")
+        result = await svc.select_relevant("d", msgs, k=5)
+    assert len(result) == 1  # recency 降级仍返回
 
-    with patch("app.domain.agent.memory.LLMClient") as MockLLM:
-        MockLLM.return_value.simple_chat = AsyncMock(return_value="[0]")
+
+@pytest.mark.asyncio
+async def test_load_relevant_prepends_block_vector(db_session):
+    """load_relevant_memories 返回 <relevant_memories>...</> 格式(向量路径)。"""
+    from app.domain.agent.memory import MemoryService
+
+    svc = MemoryService(db_session)
+    with patch("app.domain.agent.memory.MemoryVectorIndex"), \
+         patch("app.domain.agent.memory.EmbeddingService"):
+        m1 = await svc.write_memory(scope="d", name="简洁", type="user",
+                                    description="喜欢简洁", body="正文")
+    msgs = [{"role": "user", "content": "简洁一点"}]
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockVidx.return_value.ids_in_scope.return_value = {m1["id"]}
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        MockVidx.return_value.query.return_value = [{"id": m1["id"], "distance": 0.1}]
         block = await svc.load_relevant_memories("d", msgs)
-
     assert "<relevant_memories>" in block
-    assert "内容" in block
+    assert "简洁" in block
 
 
 @pytest.mark.asyncio
@@ -182,8 +221,12 @@ async def test_load_relevant_empty_returns_empty_string(db_session):
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
-    msgs = [{"role": "user", "content": "问"}]
-    with patch("app.domain.agent.memory.LLMClient"):
+    msgs = [{"role": "user", "content": "问点什么"}]
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockVidx.return_value.ids_in_scope.return_value = set()
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        MockVidx.return_value.query.return_value = []
         block = await svc.load_relevant_memories("empty", msgs)
     assert block == ""
 

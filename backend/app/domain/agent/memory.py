@@ -173,55 +173,25 @@ class MemoryService:
         messages: list[dict],
         k: int = 5,
     ) -> list[dict]:
-        rows = await self.list_memories(scope)
-        if not rows:
-            return []
-
         recent = self._recent_user_text(messages)
         if not recent.strip():
             return []
 
-        catalog = "\n".join(
-            f"{i}: {r['name']} — {r['description']}" for i, r in enumerate(rows)
-        )
-        prompt = (
-            "Given recent conversation and the memory catalog, select indices of "
-            "memories that are clearly relevant. Return ONLY a JSON array of "
-            "integers.\n\n"
-            f"Recent conversation:\n{recent}\n\n"
-            f"Memory catalog:\n{catalog}"
-        )
-
+        await self._ensure_vectors(scope)
         try:
-            settings = get_settings()
-            llm = LLMClient(settings)
-            response = await llm.simple_chat(prompt=prompt)
-            match = re.search(r"\[.*?\]", response, re.DOTALL)
-            if match:
-                indices = json.loads(match.group())
-                out: list[dict] = []
-                for idx in indices:
-                    if isinstance(idx, int) and 0 <= idx < len(rows):
-                        out.append(rows[idx])
-                        if len(out) >= k:
-                            break
-                if out:
-                    return out
+            qv = EmbeddingService.embed([recent])[0]
+            hits = MemoryVectorIndex().query(qv, scope, top_k=k)
+            out: list[dict] = []
+            for h in hits:
+                row = await self.repo.get_by_id(h["id"])
+                if row:
+                    out.append(row)
+            return out
         except Exception as e:  # noqa: BLE001
-            logger.warning("select_relevant_llm_failed", error=str(e))
-
-        # 关键词降级
-        keywords = [w.lower() for w in recent.split() if len(w) > 2]
-        fallback: list[dict] = []
-        for r in rows:
-            text = (
-                r["name"] + " " + r["description"] + " " + r.get("body_md", "")
-            ).lower()
-            if any(kw in text for kw in keywords):
-                fallback.append(r)
-                if len(fallback) >= k:
-                    break
-        return fallback
+            logger.warning("select_relevant_vector_failed",
+                           scope=scope, error=str(e))
+            rows = await self.repo.list_by_scope(scope)
+            return rows[:k]
 
     async def load_relevant_memories(
         self,
