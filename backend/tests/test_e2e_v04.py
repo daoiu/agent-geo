@@ -99,7 +99,7 @@ def test_e2e_human_confirmation_pause_and_resume(client: TestClient) -> None:
             chunks = list(resp.iter_text())
             assert any("event: tool_call_result" in c for c in chunks)
             assert any("event: turn_complete" in c for c in chunks)
-            mock_resume.assert_called_once_with(sid, msg_id)
+            mock_resume.assert_called_once_with(sid, msg_id, device_id=None)
 
 
 def test_e2e_cancel_returns_json(client: TestClient) -> None:

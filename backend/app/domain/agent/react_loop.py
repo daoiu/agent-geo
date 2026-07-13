@@ -7,14 +7,24 @@
   human_confirmation_required / turn_complete / max_iterations_reached）
 - 写类工具抛 HumanConfirmationRequired 暂停循环
 - 断点续跑：run_agent_turn_from_checkpoint 从上次 pending_confirmation 继续执行
+
+v0.6 P1.6 — L2 跨会话偏好：
+- `build_messages` 接受 `memory_index_segment`,拼到 system 末尾
+- `_apply_memory_prepend` 在每个 LLM call 前把相关记忆 prepended 到 user 消息
+- `_do_extract_after_turn` 在 `turn_complete` 前 fire-and-forget 触发蒸馏
+- `_PENDING_EXTRACTS` 持有后台 task 防 GC
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import AsyncIterator
 
+import structlog
+
 from app.core.config import get_settings
 from app.core.db import get_session_factory
+from app.domain.agent.memory import MemoryService, scope_key
 from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.domain.agent.tool_executor import ToolExecutor
 from app.domain.agent.tools import TOOLS
@@ -23,6 +33,10 @@ from app.models.orm_v04 import AgentMessageORM
 from app.repositories.agent_repo import AgentRepository
 
 MAX_REACT_ITERATIONS = 7  # v0.6 P1.4: 5 → 7，留余量给 list → search → create_task
+logger = structlog.get_logger()
+
+# Fire-and-forget 持有的后台任务集合,避免被 GC
+_PENDING_EXTRACTS: set[asyncio.Task] = set()
 
 
 # ===========================================================================
@@ -30,7 +44,10 @@ MAX_REACT_ITERATIONS = 7  # v0.6 P1.4: 5 → 7，留余量给 list → search �
 # ===========================================================================
 
 
-def build_messages(history: list[dict]) -> list[dict]:
+def build_messages(
+    history: list[dict],
+    memory_index_segment: str = "",
+) -> list[dict]:
     """把 DB 风格历史转换为 OpenAI chat completion 协议格式。
 
     输入 history 元素格式：
@@ -44,6 +61,8 @@ def build_messages(history: list[dict]) -> list[dict]:
       （HumanConfirmation / 被中断的流会留下无结果的 tool_call），并跳过孤儿 tool
       结果。否则严格 provider 报 'tool call result does not follow tool call' 400。
     - 系统 prompt 总是作为第一条注入
+    - v0.6 P1.6:`memory_index_segment`（L2 索引段）拼到系统 prompt 末尾,
+      仅常量部分参与 prompt cache,索引内容改变不需要重建整段 system
     """
     # 先扫出「已有结果」的 tool_call_id（存在对应 tool 消息）与「被 assistant 声明」的
     # tool_call_id；只有两者交集(kept_ids)才是可安全重放的配对。
@@ -63,7 +82,10 @@ def build_messages(history: list[dict]) -> list[dict]:
                     declared_ids.add(tc["id"])
     kept_ids = resolved_ids & declared_ids
 
-    out: list[dict] = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+    out: list[dict] = [{
+        "role": "system",
+        "content": AGENT_SYSTEM_PROMPT + memory_index_segment,
+    }]
 
     for msg in history:
         role = msg["role"]
@@ -139,6 +161,54 @@ def _orm_to_dict(m: AgentMessageORM) -> dict:
 
 
 # ===========================================================================
+# v0.6 P1.6 — L2 记忆 helpers
+# ===========================================================================
+
+
+def _apply_memory_prepend(messages: list[dict], prepend: str) -> list[dict]:
+    """把 relevant memories 块拼到第一条 user 消息前。
+
+    设计:只对第一个 user role 消息拼接(本次 turn 的用户输入),
+    不动后续 assistant / tool / system 消息,也不会重复注入。
+    返回新列表(不修改入参),便于多次调用(build_messages 每次返回新列表即可)。
+    """
+    if not prepend:
+        return messages
+    out: list[dict] = []
+    injected = False
+    for m in messages:
+        if not injected and m.get("role") == "user" and m.get("content"):
+            out.append({**m, "content": prepend + "\n\n" + m["content"]})
+            injected = True
+        else:
+            out.append(m)
+    return out
+
+
+async def _do_extract_after_turn(
+    device_id: str | None,
+    session_id: str,
+    history: list[dict],
+) -> None:
+    """turn_complete 后 fire-and-forget 调。失败静默,不影响 turn。"""
+    try:
+        factory = get_session_factory()
+        async with factory() as session:
+            svc = MemoryService(session)
+            await svc.extract(
+                scope=scope_key(device_id, session_id),
+                messages=history,
+                session_id=session_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "extract_after_turn_failed",
+            session_id=session_id,
+            error=str(e),
+        )
+
+
+# ===========================================================================
 # ReAct 主循环
 # ===========================================================================
 
@@ -146,6 +216,7 @@ def _orm_to_dict(m: AgentMessageORM) -> dict:
 async def run_agent_turn(
     session_id: str,
     user_message: str,
+    device_id: str | None = None,
 ) -> AsyncIterator[dict]:
     """执行一轮 agent 推理 + 行动循环。流式 yield SSE 事件。
 
@@ -165,6 +236,7 @@ async def run_agent_turn(
     settings = get_settings()
     llm = LLMClient(settings)
     factory = get_session_factory()
+    scope = scope_key(device_id, session_id)
 
     # 1. 加载历史 + 2. 保存 user 消息
     async with factory() as session:
@@ -177,9 +249,16 @@ async def run_agent_turn(
         {"role": "user", "content": user_message}
     ]
 
+    # v0.6 P1.6 — L2:计算 system 的索引段 + user turn 的 relevant memories(整个 turn 复用一次)
+    async with factory() as session:
+        memory_service = MemoryService(session)
+        memory_index_segment = await memory_service.build_memory_segment(scope)
+        memory_block = await memory_service.load_relevant_memories(scope, history)
+
     # 3. ReAct 循环
     for _iteration in range(MAX_REACT_ITERATIONS):
-        messages = build_messages(history)
+        messages = build_messages(history, memory_index_segment=memory_index_segment)
+        messages = _apply_memory_prepend(messages, memory_block)
 
         response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
         content = response.get("content")
@@ -279,6 +358,12 @@ async def run_agent_turn(
             history = [_orm_to_dict(m) for m in history_rows]
         else:
             # LLM 没调用工具 = 最终回答
+            # v0.6 P1.6 — L2:fire-and-forget 触发 extract,失败静默
+            task = asyncio.create_task(
+                _do_extract_after_turn(device_id, session_id, history)
+            )
+            _PENDING_EXTRACTS.add(task)
+            task.add_done_callback(_PENDING_EXTRACTS.discard)
             yield {"event": "turn_complete"}
             return
 
@@ -297,6 +382,7 @@ async def run_agent_turn(
 async def run_agent_turn_from_checkpoint(
     session_id: str,
     checkpoint_message_id: str,
+    device_id: str | None = None,
 ) -> AsyncIterator[dict]:
     """从 pending_confirmation 消息处继续执行。
 
@@ -424,8 +510,16 @@ async def run_agent_turn_from_checkpoint(
         history_rows = await repo.list_messages(session_id)
     history = [_orm_to_dict(m) for m in history_rows]
 
+    # v0.6 P1.6 — L2:同 run_agent_turn,计算索引段 + relevant block
+    scope = scope_key(device_id, session_id)
+    async with factory() as session:
+        memory_service = MemoryService(session)
+        memory_index_segment = await memory_service.build_memory_segment(scope)
+        memory_block = await memory_service.load_relevant_memories(scope, history)
+
     for _iteration in range(MAX_REACT_ITERATIONS):
-        messages = build_messages(history)
+        messages = build_messages(history, memory_index_segment=memory_index_segment)
+        messages = _apply_memory_prepend(messages, memory_block)
         response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
         content = response.get("content")
         tool_calls = response.get("tool_calls") or []
@@ -516,6 +610,12 @@ async def run_agent_turn_from_checkpoint(
                 history_rows = await repo.list_messages(session_id)
             history = [_orm_to_dict(m) for m in history_rows]
         else:
+            # v0.6 P1.6 — L2:fire-and-forget 触发 extract,失败静默
+            task = asyncio.create_task(
+                _do_extract_after_turn(device_id, session_id, history)
+            )
+            _PENDING_EXTRACTS.add(task)
+            task.add_done_callback(_PENDING_EXTRACTS.discard)
             yield {"event": "turn_complete"}
             return
 

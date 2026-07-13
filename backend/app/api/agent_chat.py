@@ -1,4 +1,7 @@
-"""v0.4 Agent Chat API：SSE 流式 chat + 确认端点（支持断点续跑）。"""
+"""v0.4 Agent Chat API：SSE 流式 chat + 确认端点（支持断点续跑）。
+
+v0.6 P1.6 — 加 `X-Device-Id` 依赖(L2 跨会话偏好用)。
+"""
 from __future__ import annotations
 
 import json
@@ -9,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import device_id_header
 from app.api.diagnosis import get_session
 from app.domain.agent.react_loop import (
     run_agent_turn,
@@ -46,6 +50,7 @@ async def send_message(
     session_id: str,
     body: SendMessageRequest,
     session: AsyncSession = Depends(get_session),
+    device_id: str | None = Depends(device_id_header),
 ):
     """发送 user message，流式返回 agent 的 SSE 事件。"""
     repo = AgentRepository(session)
@@ -54,7 +59,9 @@ async def send_message(
         raise HTTPException(status_code=404, detail="session not found")
 
     async def event_generator() -> AsyncIterator[str]:
-        async for event in run_agent_turn(session_id, body.content):
+        async for event in run_agent_turn(
+            session_id, body.content, device_id=device_id
+        ):
             event_name = event.pop("event")
             yield f"event: {event_name}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -73,6 +80,7 @@ async def confirm_action(
     message_id: str,
     body: ConfirmActionRequest,
     session: AsyncSession = Depends(get_session),
+    device_id: str | None = Depends(device_id_header),
 ):
     """确认或取消 human-in-the-loop 工具调用。
 
@@ -108,7 +116,9 @@ async def confirm_action(
     await repo.confirm_message(message_id, approved=True)
 
     async def event_generator() -> AsyncIterator[str]:
-        async for event in run_agent_turn_from_checkpoint(session_id, message_id):
+        async for event in run_agent_turn_from_checkpoint(
+            session_id, message_id, device_id=device_id
+        ):
             event_name = event.pop("event")
             yield f"event: {event_name}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
