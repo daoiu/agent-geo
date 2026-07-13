@@ -213,49 +213,25 @@ async def _do_extract_after_turn(
 # ===========================================================================
 
 
-async def run_agent_turn(
+async def _drive_react_loop(
     session_id: str,
-    user_message: str,
+    history: list[dict],
     device_id: str | None = None,
 ) -> AsyncIterator[dict]:
-    """执行一轮 agent 推理 + 行动循环。流式 yield SSE 事件。
+    """共享 ReAct 循环体。两入口做完各自起点差异后委托到此。
 
-    流程：
-    1. 加载历史消息
-    2. 保存 user 消息
-    3. 循环 MAX_REACT_ITERATIONS 次：
-       a. 调 LLM (chat_with_tools)
-       b. 保存 assistant 消息
-       c. yield assistant_message
-       d. 如果有 tool_calls：
-          - 对每个 tool：yield tool_call_start → 执行（executor） → 保存 tool 消息 → yield tool_call_result
-          - 如果抛 HumanConfirmationRequired：yield human_confirmation_required 并暂停
-       e. 否则 yield turn_complete 结束
-    4. 超过 MAX_ITERATIONS：yield max_iterations_reached
+    产出的 SSE 事件流与收敛前逐事件等价。
     """
     settings = get_settings()
     llm = LLMClient(settings)
     factory = get_session_factory()
     scope = scope_key(device_id, session_id)
 
-    # 1. 加载历史 + 2. 保存 user 消息
-    async with factory() as session:
-        repo = AgentRepository(session)
-        history_rows = await repo.list_messages(session_id)
-        await repo.create_message(
-            session_id=session_id, role="user", content=user_message
-        )
-    history = [_orm_to_dict(m) for m in history_rows] + [
-        {"role": "user", "content": user_message}
-    ]
-
-    # v0.6 P1.6 — L2:计算 system 的索引段 + user turn 的 relevant memories(整个 turn 复用一次)
     async with factory() as session:
         memory_service = MemoryService(session)
         memory_index_segment = await memory_service.build_memory_segment(scope)
         memory_block = await memory_service.load_relevant_memories(scope, history)
 
-    # 3. ReAct 循环
     for _iteration in range(MAX_REACT_ITERATIONS):
         messages = build_messages(history, memory_index_segment=memory_index_segment)
         messages = _apply_memory_prepend(messages, memory_block)
@@ -264,7 +240,6 @@ async def run_agent_turn(
         content = response.get("content")
         tool_calls = response.get("tool_calls") or []
 
-        # 保存 assistant 消息
         tc_for_db = None
         if tool_calls:
             tc_for_db = [
@@ -290,10 +265,7 @@ async def run_agent_turn(
 
         if tool_calls:
             executor = ToolExecutor(session_id)
-            should_continue = True
             for tool_call in tool_calls:
-                if not should_continue:
-                    break
                 tool_id = tool_call["id"]
                 tool_name = tool_call["function"]["name"]
                 tool_args = tool_call["function"]["arguments"]
@@ -319,9 +291,8 @@ async def run_agent_turn(
                             "tool_name": exc.tool_name,
                             "arguments": exc.arguments,
                         }
-                        return  # 暂停，等用户确认
+                        return
 
-                    # 其它异常：包装成错误返回给 LLM，让 LLM 决策
                     err_payload = {"error": f"{type(exc).__name__}: {exc}"}
                     async with factory() as session:
                         repo = AgentRepository(session)
@@ -337,7 +308,6 @@ async def run_agent_turn(
                     }
                     continue
 
-                # 成功：保存 tool 消息 + yield result
                 async with factory() as session:
                     repo = AgentRepository(session)
                     await repo.create_message(
@@ -351,14 +321,11 @@ async def run_agent_turn(
                     "result": result,
                 }
 
-            # 重新加载历史让下一轮看到 tool 结果
             async with factory() as session:
                 repo = AgentRepository(session)
                 history_rows = await repo.list_messages(session_id)
             history = [_orm_to_dict(m) for m in history_rows]
         else:
-            # LLM 没调用工具 = 最终回答
-            # v0.6 P1.6 — L2:fire-and-forget 触发 extract,失败静默
             task = asyncio.create_task(
                 _do_extract_after_turn(device_id, session_id, history)
             )
@@ -367,11 +334,36 @@ async def run_agent_turn(
             yield {"event": "turn_complete"}
             return
 
-    # 4. 达到最大迭代
     yield {
         "event": "max_iterations_reached",
         "message": f"agent 达到最大推理步数 ({MAX_REACT_ITERATIONS})",
     }
+
+
+async def run_agent_turn(
+    session_id: str,
+    user_message: str,
+    device_id: str | None = None,
+) -> AsyncIterator[dict]:
+    """执行一轮 agent 推理 + 行动循环。流式 yield SSE 事件。
+
+    起点差异:加载历史 → 保存 user 消息 → 委托共享循环。
+    """
+    factory = get_session_factory()
+
+    # 1. 加载历史 + 2. 保存 user 消息
+    async with factory() as session:
+        repo = AgentRepository(session)
+        history_rows = await repo.list_messages(session_id)
+        await repo.create_message(
+            session_id=session_id, role="user", content=user_message
+        )
+    history = [_orm_to_dict(m) for m in history_rows] + [
+        {"role": "user", "content": user_message}
+    ]
+
+    async for evt in _drive_react_loop(session_id, history, device_id):
+        yield evt
 
 
 # ===========================================================================
@@ -403,7 +395,6 @@ async def run_agent_turn_from_checkpoint(
     """
     from app.domain.agent.tools import GenerateArticleArgs
 
-    settings = get_settings()
     factory = get_session_factory()
 
     # 1. 找到 checkpoint message
@@ -503,123 +494,11 @@ async def run_agent_turn_from_checkpoint(
         "result": confirmed_result,
     }
 
-    # 6. 继续 ReAct 循环（重新加载历史，让 LLM 基于新 tool 结果继续决策）
-    llm = LLMClient(settings)
+    # 6. 继续 ReAct 循环（委托共享驱动，基于新 tool 结果继续决策）
     async with factory() as session:
         repo = AgentRepository(session)
         history_rows = await repo.list_messages(session_id)
     history = [_orm_to_dict(m) for m in history_rows]
 
-    # v0.6 P1.6 — L2:同 run_agent_turn,计算索引段 + relevant block
-    scope = scope_key(device_id, session_id)
-    async with factory() as session:
-        memory_service = MemoryService(session)
-        memory_index_segment = await memory_service.build_memory_segment(scope)
-        memory_block = await memory_service.load_relevant_memories(scope, history)
-
-    for _iteration in range(MAX_REACT_ITERATIONS):
-        messages = build_messages(history, memory_index_segment=memory_index_segment)
-        messages = _apply_memory_prepend(messages, memory_block)
-        response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
-        content = response.get("content")
-        tool_calls = response.get("tool_calls") or []
-
-        tc_for_db = None
-        if tool_calls:
-            tc_for_db = [
-                {
-                    "id": tc["id"],
-                    "function": {
-                        "name": tc["function"]["name"],
-                        "arguments": json.dumps(tc["function"]["arguments"])
-                        if isinstance(tc["function"]["arguments"], dict)
-                        else tc["function"]["arguments"],
-                    },
-                }
-                for tc in tool_calls
-            ]
-        async with factory() as session:
-            repo = AgentRepository(session)
-            await repo.create_message(
-                session_id=session_id, role="assistant",
-                content=content, tool_calls=tc_for_db,
-            )
-        yield {"event": "assistant_message", "content": content or ""}
-
-        if tool_calls:
-            should_continue = True
-            for tool_call in tool_calls:
-                if not should_continue:
-                    break
-                tool_id = tool_call["id"]
-                tool_name = tool_call["function"]["name"]
-                tool_args = tool_call["function"]["arguments"]
-                if isinstance(tool_args, str):
-                    tool_args = json.loads(tool_args)
-
-                yield {
-                    "event": "tool_call_start",
-                    "tool_call_id": tool_id,
-                    "tool_name": tool_name,
-                    "arguments": tool_args,
-                }
-
-                try:
-                    result = await executor.execute(tool_name, tool_args)
-                except Exception as exc:
-                    from app.domain.exceptions import HumanConfirmationRequired
-
-                    if isinstance(exc, HumanConfirmationRequired):
-                        yield {
-                            "event": "human_confirmation_required",
-                            "message_id": exc.message_id,
-                            "tool_name": exc.tool_name,
-                            "arguments": exc.arguments,
-                        }
-                        return
-                    err_payload = {"error": f"{type(exc).__name__}: {exc}"}
-                    async with factory() as session:
-                        repo = AgentRepository(session)
-                        await repo.create_message(
-                            session_id=session_id, role="tool",
-                            content=json.dumps(err_payload, ensure_ascii=False),
-                            tool_call_id=tool_id,
-                        )
-                    yield {
-                        "event": "tool_call_result",
-                        "tool_call_id": tool_id,
-                        "result": err_payload,
-                    }
-                    continue
-
-                async with factory() as session:
-                    repo = AgentRepository(session)
-                    await repo.create_message(
-                        session_id=session_id, role="tool",
-                        content=json.dumps(result, ensure_ascii=False),
-                        tool_call_id=tool_id,
-                    )
-                yield {
-                    "event": "tool_call_result",
-                    "tool_call_id": tool_id,
-                    "result": result,
-                }
-
-            async with factory() as session:
-                repo = AgentRepository(session)
-                history_rows = await repo.list_messages(session_id)
-            history = [_orm_to_dict(m) for m in history_rows]
-        else:
-            # v0.6 P1.6 — L2:fire-and-forget 触发 extract,失败静默
-            task = asyncio.create_task(
-                _do_extract_after_turn(device_id, session_id, history)
-            )
-            _PENDING_EXTRACTS.add(task)
-            task.add_done_callback(_PENDING_EXTRACTS.discard)
-            yield {"event": "turn_complete"}
-            return
-
-    yield {
-        "event": "max_iterations_reached",
-        "message": f"agent 达到最大推理步数 ({MAX_REACT_ITERATIONS})",
-    }
+    async for evt in _drive_react_loop(session_id, history, device_id):
+        yield evt
