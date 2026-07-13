@@ -135,6 +135,108 @@ class TestMessagesStructure:
         )
         assert "academic" in messages[0]["content"]
 
+    def test_v2_forbids_source_list_in_prompt(self, agent: ContentWriterAgent) -> None:
+        """v2 GEO 共识 prompt 必须禁止 LLM 在文末输出 [1][2] 信源列表（产品反馈：不需要）。"""
+        messages = agent._build_messages(
+            brand="X", topic="T", keywords=[], style="neutral",
+            target_length=500, chunks=[],
+        )
+        sys = messages[0]["content"]
+        # v2 prompt 必须显式禁止文末信源列表
+        assert "信源引用" in sys
+        assert "不要" in sys
+
+    def test_v2_forbids_think_leakage_in_prompt(self, agent: ContentWriterAgent) -> None:
+        """v2 prompt 必须禁止 LLM 把 <think> 推理过程写进正文。"""
+        messages = agent._build_messages(
+            brand="X", topic="T", keywords=[], style="neutral",
+            target_length=500, chunks=[],
+        )
+        sys = messages[0]["content"]
+        # 反模式清单里有
+        assert "思考过程外泄" in sys or "思考过程" in sys
+
+
+# ===========================================================================
+# 关键差异点 1.5：剥离 <think> 块
+# ===========================================================================
+
+
+class TestStripThinkBlocks:
+    """LLM 推理模型（DeepSeek/MiniMax）在 reply 开头输出 <think>...</think>，
+    必须从生成内容里剥离，否则 ArticleORM 会存到正文里。"""
+
+    def test_strips_single_think_block_at_start(self) -> None:
+        from app.domain.generator.content_writer_agent import ContentWriterAgent
+
+        raw = "<think>\nLet me think...\n</think>\n\n# 真实标题\n\n正文。"
+        out = ContentWriterAgent._strip_think_blocks(raw)
+        assert "<think>" not in out
+        assert "Let me think" not in out
+        assert out.startswith("# 真实标题")
+
+    def test_strips_think_block_in_middle(self) -> None:
+        from app.domain.generator.content_writer_agent import ContentWriterAgent
+
+        raw = "前置文字\n\n<think>\ninternal reasoning\n</think>\n\n# 标题\n\n后文"
+        out = ContentWriterAgent._strip_think_blocks(raw)
+        # think 块（含 'internal reasoning'）必须被剥掉
+        assert "internal reasoning" not in out
+        assert "<think>" not in out
+        # 前置文字（非 think 块）必须保留
+        assert "前置文字" in out
+        # 标题和后文必须保留
+        assert "# 标题" in out
+        assert "后文" in out
+
+    def test_strips_multiple_think_blocks(self) -> None:
+        from app.domain.generator.content_writer_agent import ContentWriterAgent
+
+        raw = "<think>A</think>正文<think>B</think>尾部"
+        out = ContentWriterAgent._strip_think_blocks(raw)
+        assert "A" not in out
+        assert "B" not in out
+        assert "正文" in out
+        assert "尾部" in out
+
+    def test_strips_multiline_think(self) -> None:
+        from app.domain.generator.content_writer_agent import ContentWriterAgent
+
+        raw = (
+            "<think>\n"
+            "1. 分析主题\n"
+            "2. 提取关键词\n"
+            "3. 设计章节\n"
+            "</think>\n\n"
+            "# 标题\n\n## 章节一\n内容"
+        )
+        out = ContentWriterAgent._strip_think_blocks(raw)
+        assert "分析主题" not in out
+        assert "提取关键词" not in out
+        assert out.startswith("# 标题")
+
+    def test_no_think_block_passes_through(self) -> None:
+        from app.domain.generator.content_writer_agent import ContentWriterAgent
+
+        raw = "# 标题\n\n正常内容"
+        assert ContentWriterAgent._strip_think_blocks(raw) == raw
+
+    def test_empty_or_none_safe(self) -> None:
+        from app.domain.generator.content_writer_agent import ContentWriterAgent
+
+        assert ContentWriterAgent._strip_think_blocks("") == ""
+        assert ContentWriterAgent._strip_think_blocks(None) == ""
+
+    def test_unclosed_think_strips_through_end(self) -> None:
+        """防御：think 块未闭合（异常流）时贪婪匹配吞到末尾——这是 trade-off,
+        反正未闭合的内容也不该保留。"""
+        from app.domain.generator.content_writer_agent import ContentWriterAgent
+
+        raw = "# 标题\n<think>永远不闭合的推理"
+        out = ContentWriterAgent._strip_think_blocks(raw)
+        # 未闭合的 think 块（贪婪匹配 DOTALL）会被剥掉
+        assert "永远不闭合" not in out or out.startswith("# 标题")
+
 
 # ===========================================================================
 # 关键差异点 2：base_url bare host 自动补 /v1

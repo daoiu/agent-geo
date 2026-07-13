@@ -265,59 +265,48 @@ class ToolExecutor:
         }
 
     async def _execute_generate_article(self, args: GenerateArticleArgs) -> dict:
-        """生成文章（待确认）。
+        """生成文章（v0.6 P1.6: 默认走后台，与多篇统一路径）。
 
-        落"待确认"消息到 agent_messages，抛 HumanConfirmationRequired 暂停 ReAct。
-        真实生成在 _execute_generate_article_confirmed 中（confirm_action 后触发）。
+        与 P1.4 行为一致：创建 v0.2 TaskORM (article_count=1) + schedule_task，
+        立即返回 task_id，agent turn 结束。用户去 /tasks/<id> 看进度。
 
-        IMPORTANT: v0.4 agent 不会修改 v0.2 数据库（不创建 v0.2 Task / Article）。
-        这里只是落"待确认"消息到 v0.4 自己的 agent_messages 表。
+        与 create_generation_task 的区别：
+        - create_generation_task 必须传 kb_id（基于 KB 召回）
+        - generate_article 可不传 kb（虽然 GenerateArticleArgs 当前 kb_id 必填——
+          v0.4 设计假设用户已在 agent 会话里 list/search 过）
+
+        与 v0.4 老行为（抛 HumanConfirmationRequired）的差异：
+        - 老设计：流式预览 + 用户确认 → 实时落 ArticleORM
+        - 新设计：所有生成统一后台异步；实时预览需要 opt-in（暂未实现）
         """
-        import json
-        import uuid
-
         from app.core.db import get_session_factory
-        from app.domain.exceptions import HumanConfirmationRequired
-        from app.models.orm_v04 import AgentMessageORM
-
-        message_id = str(uuid.uuid4())
-        content = (
-            f"准备生成文章：\n"
-            f"- 品牌：{args.brand}\n"
-            f"- 主题：{args.topic}\n"
-            f"- 关键词：{', '.join(args.keywords)}\n"
-            f"- 风格：{args.style}\n"
-            f"- 目标字数：{args.target_length}\n\n"
-            f"是否继续？"
-        )
-        tool_calls_json = json.dumps([
-            {
-                "id": message_id,
-                "type": "function",
-                "function": {
-                    "name": "generate_article",
-                    "arguments": json.dumps(args.model_dump(mode="json"), ensure_ascii=False),
-                },
-            }
-        ], ensure_ascii=False)
+        from app.repositories.task_repo import TaskRepository
+        from app.tasks.task_worker import schedule_task
 
         async with get_session_factory()() as session:
-            msg = AgentMessageORM(
-                id=message_id,
-                session_id=self.session_id,
-                role="assistant",
-                content=content,
-                tool_calls=tool_calls_json,
-                pending_confirmation=1,
+            task_repo = TaskRepository(session)
+            task_name = f"{args.brand} - {args.topic}"[:200]
+            task = await task_repo.create_task(
+                name=task_name,
+                kb_id=args.kb_id,
+                brand=args.brand,
+                topic=args.topic,
+                keywords=args.keywords,
+                article_count=1,  # 单篇 = article_count=1 的多篇特例
+                style=args.style,
+                target_length=args.target_length,
             )
-            session.add(msg)
-            await session.commit()
 
-        raise HumanConfirmationRequired(
-            message_id=message_id,
-            tool_name="generate_article",
-            arguments=args.model_dump(mode="json"),
-        )
+        # 触发后台 worker（v0.2 task_worker 已有）
+        schedule_task(task.id)
+
+        return {
+            "task_id": task.id,
+            "kb_id": args.kb_id,
+            "article_count": 1,
+            "status": task.status,
+            "next_step": f"已创建单篇生成任务。请到 /tasks/{task.id} 详情页审核。",
+        }
 
     async def _execute_generate_article_confirmed(
         self, args: GenerateArticleArgs, checkpoint_message_id: str

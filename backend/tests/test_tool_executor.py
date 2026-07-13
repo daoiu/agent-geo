@@ -629,98 +629,102 @@ class TestGenerateArticleConfirmed:
 
 
 class TestGenerateArticle:
-    """generate_article 是写类工具，落'待确认'消息后抛 HumanConfirmationRequired。"""
+    """v0.6 P1.6+: generate_article 与 create_generation_task 统一走后台路径。
+
+    调用即创建 article_count=1 的 v0.2 Task + 触发 worker，
+    返回 task_id 给 agent，**不**抛 HumanConfirmationRequired。
+
+    旧 v0.4 行为（抛 HumanConfirmation）已废弃，代码保留为可恢复参考。
+    """
 
     @pytest.mark.asyncio
-    async def test_raises_human_confirmation_required(
+    async def test_creates_background_task_with_article_count_one(
         self, executor: ToolExecutor, db_session
     ) -> None:
-        """调用时抛 HumanConfirmationRequired。"""
+        """调用即创建 v0.2 TaskORM（article_count=1），不抛 HumanConfirmation。"""
         from app.domain.agent.tools import GenerateArticleArgs
         from app.domain.exceptions import HumanConfirmationRequired
-        from app.models.orm_v04 import AgentSessionORM
+        from app.repositories.knowledge_repo import KnowledgeRepository
 
-        # 先建 session 让外键生效
-        sess = AgentSessionORM(id="sess-x", title="T")
-        db_session.add(sess)
-        await db_session.commit()
+        # 先建 KB（TaskORM 外键依赖）
+        kb_repo = KnowledgeRepository(db_session)
+        kb = await kb_repo.create_kb(name="KB")
 
-        ex = ToolExecutor(session_id="sess-x")
+        ex = ToolExecutor(session_id="unused")
         args = GenerateArticleArgs(
-            kb_id="kb1", brand="小米", topic="产品评测与体验",
+            kb_id=kb.id, brand="小米", topic="产品评测与体验",
             keywords=["性能", "拍照"],
         )
 
-        with pytest.raises(HumanConfirmationRequired) as exc_info:
-            await ex._execute_generate_article(args)
+        # schedule_task 是 fire-and-forget asyncio.create_task；mock 掉
+        with patch("app.tasks.task_worker.schedule_task") as mock_sched:
+            result = await ex._execute_generate_article(args)
 
-        assert exc_info.value.tool_name == "generate_article"
-        assert exc_info.value.arguments["brand"] == "小米"
-        assert exc_info.value.arguments["topic"] == "产品评测与体验"
-        assert exc_info.value.arguments["kb_id"] == "kb1"
-        assert exc_info.value.arguments["keywords"] == ["性能", "拍照"]
-        assert exc_info.value.message_id != ""
+        # 返回 task_id + article_count=1 + status pending
+        assert "task_id" in result
+        assert result["article_count"] == 1
+        assert result["kb_id"] == kb.id
+        assert "审核" in result["next_step"]
+        mock_sched.assert_called_once_with(result["task_id"])
 
-    @pytest.mark.asyncio
-    async def test_persists_pending_confirmation_message(
-        self, executor: ToolExecutor, db_session
-    ) -> None:
-        """抛异常时已把'待确认'消息落库，pending_confirmation=1。"""
-        from sqlalchemy import select
+        # 验证 DB 里 task 已建好
+        from app.repositories.task_repo import TaskRepository
 
-        from app.domain.agent.tools import GenerateArticleArgs
-        from app.domain.exceptions import HumanConfirmationRequired
-        from app.models.orm_v04 import AgentMessageORM, AgentSessionORM
-
-        # 先建 session
-        sess = AgentSessionORM(id="sess-1", title="T")
-        db_session.add(sess)
-        await db_session.commit()
-
-        ex = ToolExecutor(session_id="sess-1")
-        args = GenerateArticleArgs(
-            kb_id="kb1", brand="小米", topic="产品评测与体验",
-            keywords=["性能", "拍照"],
-        )
-
-        try:
-            await ex._execute_generate_article(args)
-        except HumanConfirmationRequired as e:
-            msg_id = e.message_id
-
-            result = await db_session.execute(
-                select(AgentMessageORM).where(AgentMessageORM.id == msg_id)
-            )
-            msg = result.scalar_one_or_none()
-            # 全局 factory 已被 db_session fixture 替换，能查到这个 msg
-            assert msg is not None
-            assert msg.role == "assistant"
-            assert msg.pending_confirmation == 1
-            assert msg.session_id == "sess-1"
-            assert "小米" in msg.content
-            assert "产品评测与体验" in msg.content
+        task_repo = TaskRepository(db_session)
+        task = await task_repo.get_task(result["task_id"])
+        assert task is not None
+        assert task.brand == "小米"
+        assert task.topic == "产品评测与体验"
+        assert task.article_count == 1
+        assert task.style == "neutral"  # 默认
+        assert task.target_length == 1500  # 默认
 
     @pytest.mark.asyncio
-    async def test_pending_message_includes_style_and_length(
-        self, executor: ToolExecutor, db_session
-    ) -> None:
-        """异常 payload 携带完整的 args（style、target_length）。"""
+    async def test_passes_through_style_and_length(self, db_session) -> None:
+        """style / target_length 自定义时正确透传。"""
         from app.domain.agent.tools import GenerateArticleArgs
-        from app.domain.exceptions import HumanConfirmationRequired
-        from app.models.orm_v04 import AgentSessionORM
+        from app.domain.agent.tool_executor import ToolExecutor
+        from app.repositories.knowledge_repo import KnowledgeRepository
 
-        sess = AgentSessionORM(id="sess-2", title="T")
-        db_session.add(sess)
-        await db_session.commit()
+        kb_repo = KnowledgeRepository(db_session)
+        kb = await kb_repo.create_kb(name="KB")
 
-        ex = ToolExecutor(session_id="sess-2")
+        ex = ToolExecutor(session_id="unused")
         args = GenerateArticleArgs(
-            kb_id="kb1", brand="小米", topic="产品评测与体验",
-            keywords=["性能"], style="professional", target_length=2000,
+            kb_id=kb.id, brand="小米", topic="产品评测与体验",
+            keywords=["k"], style="professional", target_length=2000,
         )
 
-        with pytest.raises(HumanConfirmationRequired) as exc_info:
-            await ex._execute_generate_article(args)
+        with patch("app.tasks.task_worker.schedule_task"):
+            result = await ex._execute_generate_article(args)
 
-        assert exc_info.value.arguments["style"] == "professional"
-        assert exc_info.value.arguments["target_length"] == 2000
+        from app.repositories.task_repo import TaskRepository
+
+        task_repo = TaskRepository(db_session)
+        task = await task_repo.get_task(result["task_id"])
+        assert task.style == "professional"
+        assert task.target_length == 2000
+
+    @pytest.mark.asyncio
+    async def test_does_not_raise_human_confirmation(self, db_session) -> None:
+        """回归：v0.6 P1.6+ 不再抛 HumanConfirmationRequired。"""
+        from app.domain.agent.tools import GenerateArticleArgs
+        from app.domain.agent.tool_executor import ToolExecutor
+        from app.domain.exceptions import HumanConfirmationRequired
+        from app.repositories.knowledge_repo import KnowledgeRepository
+
+        kb_repo = KnowledgeRepository(db_session)
+        kb = await kb_repo.create_kb(name="KB")
+
+        ex = ToolExecutor(session_id="unused")
+        args = GenerateArticleArgs(
+            kb_id=kb.id, brand="小米", topic="产品评测与体验", keywords=["k"],
+        )
+
+        with patch("app.tasks.task_worker.schedule_task"):
+            try:
+                result = await ex._execute_generate_article(args)
+            except HumanConfirmationRequired:
+                pytest.fail("v0.6 P1.6+ must NOT raise HumanConfirmationRequired")
+
+        assert "task_id" in result

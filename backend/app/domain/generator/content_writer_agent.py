@@ -52,6 +52,18 @@ class ContentWriterAgent:
         self.settings = settings
 
     @staticmethod
+    def _strip_think_blocks(content: str) -> str:
+        """剥离 LLM 输出的 <think>...</think> 内部推理块。
+
+        DeepSeek/MiniMax 等推理模型会在 reply 开头输出 <think>...，如果不剥，
+        会把推理过程当正文存到 ArticleORM 里。匹配多行、跨行、带空白/换行。
+        """
+        if not content:
+            return ""
+        # 贪婪匹配非贪婪——一次性剥掉所有 think 块（可能多个）
+        return re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL).lstrip()
+
+    @staticmethod
     def _extract_title(content: str) -> str:
         """Extract H1 from Markdown content. Returns fallback if not found."""
         m = re.search(r"^#\s+(.+?)$", content, re.MULTILINE)
@@ -129,7 +141,7 @@ class ContentWriterAgent:
                 ),
                 timeout=self.settings.llm_call_timeout_s,
             )
-            content = response.choices[0].message.content or ""
+            content = self._strip_think_blocks(response.choices[0].message.content or "")
             title = self._extract_title(content)
             return title, content
         except _LLM_TRANSIENT_EXCEPTIONS:
@@ -177,10 +189,45 @@ class ContentWriterAgent:
                 ),
                 timeout=self.settings.llm_call_timeout_s,
             )
+            # 状态机：think 块跨 chunk 边界时需缓冲
+            # states: "before_think" → "in_think" → "after_think"
+            buf = ""
+            state = "before_think"
+            THINK_START = "<think>"
+            THINK_END = "</think>"
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
-                if delta:
+                if not delta:
+                    continue
+                buf += delta
+                if state == "before_think":
+                    idx = buf.find(THINK_START)
+                    if idx == -1:
+                        # 没遇到 <think>，但需要保留最近 7 字符（防止 <think> 跨 chunk 切到一半）
+                        if len(buf) > len(THINK_START):
+                            yield buf[: -len(THINK_START)]
+                            buf = buf[-len(THINK_START):]
+                    elif idx > 0:
+                        yield buf[:idx]
+                        buf = buf[idx:]
+                        state = "in_think"
+                    else:
+                        state = "in_think"
+                if state == "in_think":
+                    end_idx = buf.find(THINK_END)
+                    if end_idx != -1:
+                        # 跳过 think 块，剩余部分进入 after_think
+                        buf = buf[end_idx + len(THINK_END):].lstrip()
+                        state = "after_think"
+                        if buf:
+                            yield buf
+                            buf = ""
+                    # else: 继续累积，等下一 chunk
+                elif state == "after_think":
                     yield delta
+            # 流结束时如果还在 think 状态（异常），丢弃 buf
+            if state == "before_think" and buf:
+                yield buf
         except _LLM_TRANSIENT_EXCEPTIONS:
             # transient：吞掉，调用方按"流结束但 content 为空"判定失败
             return
