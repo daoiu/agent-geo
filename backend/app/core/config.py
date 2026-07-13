@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     # Phase 2 — 记忆层向量化
     memory_dedup_max_distance: float = 0.15  # cosine distance < 此值视为语义重复
     memory_extract_min_chars: int = 8         # 最近 user 文本短于此则跳过 extract
+    # Phase 3 — 上下文预算
+    context_window_messages: int = 40   # 送进 LLM 的最近历史条数上限
+    tool_result_max_chars: int = 2000    # 旧 tool 结果截断字符上限
+    tool_result_keep_recent: int = 3     # 最近 N 个 tool 结果保全量
 
     @property
     def enabled_providers(self) -> list[str]:

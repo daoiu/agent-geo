@@ -295,47 +295,70 @@ class TestRunAgentTurn:
         assert events[-1]["event"] == "max_iterations_reached"
 
     @pytest.mark.asyncio
-    async def test_human_confirmation_pauses_loop(self, db_session) -> None:
-        """写类工具抛 HumanConfirmationRequired → yield SSE 并暂停。"""
+    async def test_generate_article_does_not_pause_loop(
+        self, db_session
+    ) -> None:
+        """v0.6 P1.6+: generate_article 默认走后台（article_count=1），不再抛 HumanConfirmationRequired。
+
+        agent turn 应该正常 yield tool_call_result → turn_complete，**不**出现
+        human_confirmation_required 事件。
+        """
         from unittest.mock import AsyncMock, patch
 
         from app.repositories.agent_repo import AgentRepository
+        from app.repositories.knowledge_repo import KnowledgeRepository
 
-        repo = AgentRepository(db_session)
-        session = await repo.create_session(title="T")
+        kb_repo = KnowledgeRepository(db_session)
+        kb = await kb_repo.create_kb(name="KB")
 
-        # LLM 第一次：返回 generate_article tool_call
-        with patch("app.domain.agent.react_loop.LLMClient") as MockLLM:
-            mock_instance = MockLLM.return_value
-            mock_instance.chat_with_tools = AsyncMock(return_value={
+        agent_repo = AgentRepository(db_session)
+        agent_session = await agent_repo.create_session(title="T")
+
+        # LLM 第一次：返回 generate_article tool_call；第二次：返回 final text
+        llm_responses = [
+            {
                 "content": "我来生成文章。",
                 "tool_calls": [
                     {
                         "id": "tc1",
                         "function": {
                             "name": "generate_article",
-                            "arguments": '{"kb_id":"kb1","brand":"小米","topic":"产品评测与体验","keywords":["性能"]}',
+                            "arguments": json.dumps({
+                                "kb_id": kb.id,
+                                "brand": "小米",
+                                "topic": "产品评测与体验",
+                                "keywords": ["性能", "拍照"],
+                            }, ensure_ascii=False),
                         },
                     }
                 ],
-            })
+            },
+            {"content": "已生成，请到 /tasks/<id> 审核。", "tool_calls": None},
+        ]
 
-            from app.domain.agent.react_loop import run_agent_turn
+        with patch("app.domain.agent.react_loop.LLMClient") as MockLLM:
+            mock_instance = MockLLM.return_value
+            mock_instance.chat_with_tools = AsyncMock(side_effect=llm_responses)
+            # 防止后台 worker 真的跑
+            with patch("app.tasks.task_worker.schedule_task"):
+                from app.domain.agent.react_loop import run_agent_turn
 
-            events = []
-            async for evt in run_agent_turn(session.id, "生成文章"):
-                events.append(evt)
+                events = []
+                async for evt in run_agent_turn(agent_session.id, "生成文章"):
+                    events.append(evt)
 
         event_names = [e["event"] for e in events]
         assert "assistant_message" in event_names
         assert "tool_call_start" in event_names
-        assert "human_confirmation_required" in event_names
+        assert "tool_call_result" in event_names
+        assert "turn_complete" in event_names
+        # 关键回归：v0.6 P1.6+ 不再弹 human_confirmation
+        assert "human_confirmation_required" not in event_names
 
-        # 必须有 human_confirmation_required 事件，附 message_id / tool_name / arguments
-        hcr = next(e for e in events if e["event"] == "human_confirmation_required")
-        assert hcr["message_id"] != ""
-        assert hcr["tool_name"] == "generate_article"
-        assert hcr["arguments"]["brand"] == "小米"
+        # tool_call_result 含 task_id（说明走后台）
+        tcr = next(e for e in events if e["event"] == "tool_call_result")
+        assert "task_id" in tcr["result"]
+        assert tcr["result"]["article_count"] == 1
 
     @pytest.mark.asyncio
     async def test_run_agent_turn_persists_user_message(self, db_session) -> None:
@@ -445,3 +468,10 @@ class TestRunAgentTurnFromCheckpoint:
         assert "tool_call_result" in event_names
         assert "assistant_message" in event_names
         assert "turn_complete" in event_names
+
+def test_phase3_settings_defaults():
+    from app.core.config import Settings
+    s = Settings(deepseek_api_key="x")
+    assert s.context_window_messages == 40
+    assert s.tool_result_max_chars == 2000
+    assert s.tool_result_keep_recent == 3
