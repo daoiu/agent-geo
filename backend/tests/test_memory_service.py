@@ -497,3 +497,27 @@ async def test_extract_writes_when_distant(db_session):
         MockVidx.return_value.query.return_value = [{"id": "other", "distance": 0.9}]
         count = await svc.extract("d", msgs, session_id="s1")
     assert count == 1  # 距离远,正常写入
+
+
+# ============================================================================
+# Phase 2 — consolidate 同步向量
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_consolidate_syncs_vectors(db_session):
+    from app.domain.agent.memory import MemoryService
+    svc = MemoryService(db_session, threshold=2)
+    await svc.write_memory(scope="d", name="a", type="user",
+                           description="da", body="b")
+    await svc.write_memory(scope="d", name="b", type="user",
+                           description="db", body="c")
+    merged = '[{"name":"merged","type":"user","description":"合并","body":"z"}]'
+    with patch("app.domain.agent.memory.LLMClient") as MockLLM, \
+         patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockLLM.return_value.simple_chat = AsyncMock(return_value=merged)
+        MockEmb.embed.side_effect = lambda texts: [[1.0] + [0.0] * 511 for _ in texts]
+        await svc.consolidate("d")
+        MockVidx.return_value.delete_scope.assert_called_once_with("d")
+        assert MockVidx.return_value.add.called

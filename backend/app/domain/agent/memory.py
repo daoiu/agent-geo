@@ -371,6 +371,20 @@ class MemoryService:
                     "body_md": body,
                 })
         await self.repo.replace_all_bulk(scope, new_items)
+        # Phase 2:同步向量(清 scope 旧向量,为新记录回填;失败静默,下次 select 补)
+        try:
+            vidx = MemoryVectorIndex()
+            vidx.delete_scope(scope)
+            fresh = await self.repo.list_by_scope(scope)
+            if fresh:
+                texts = [self._embed_text(r["name"], r["description"]) for r in fresh]
+                embs = EmbeddingService.embed(texts)
+                for r, e in zip(fresh, embs):
+                    vidx.add(r["id"], scope, r["type"],
+                             self._embed_text(r["name"], r["description"]), e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("consolidate_vector_sync_failed",
+                           scope=scope, error=str(e))
         logger.info(
             "memory_consolidated", scope=scope, old=len(rows), new=len(new_items)
         )
