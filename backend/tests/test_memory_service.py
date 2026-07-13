@@ -5,21 +5,15 @@ Phase 2:EmbeddingService + MemoryVectorIndex 由 autouse fixture 默认 mock,
 杜绝真加载 bge(沙箱无外网会卡死)/写真 ChromaDB。个别用例用自己的 with patch 覆盖。
 """
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def _mock_memory_vectors():
-    """全文件默认 mock 向量依赖:EmbeddingService.embed 返回假向量,
-    MemoryVectorIndex 为 MagicMock。个别用例的 with patch(...) 会在其块内覆盖。"""
-    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
-         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
-        MockEmb.embed.side_effect = lambda texts: [[1.0] + [0.0] * 511 for _ in texts]
-        MockVidx.return_value.ids_in_scope.return_value = set()
-        MockVidx.return_value.query.return_value = []
-        yield
+def _mock_memory_vectors(mock_memory_vectors):
+    """默认 mock 向量依赖(共享 fixture 见 conftest);个别用例的 with patch 覆盖。"""
+    yield
 
 
 LLM_NEW_EXTRACT = json.dumps([

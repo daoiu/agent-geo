@@ -111,11 +111,7 @@ class MemoryService:
             session_id=session_id,
         )
         try:
-            emb = EmbeddingService.embed([self._embed_text(name, description)])[0]
-            MemoryVectorIndex().add(
-                created["id"], scope, type,
-                self._embed_text(name, description), emb,
-            )
+            self._write_vectors(scope, [created])
         except Exception as e:  # noqa: BLE001
             logger.warning("write_memory_vector_failed",
                            scope=scope, name=name, error=str(e))
@@ -125,22 +121,29 @@ class MemoryService:
     def _embed_text(name: str, description: str) -> str:
         return f"{name}。{description}"
 
+    def _write_vectors(self, scope: str, rows: list[dict]) -> None:
+        """给一批记忆 embed 并写入向量索引。调用方负责 try/except 降级。
+
+        每个 row 需含 id / name / description / type。空列表直接返回。
+        """
+        if not rows:
+            return
+        vidx = MemoryVectorIndex()
+        texts = [self._embed_text(r["name"], r["description"]) for r in rows]
+        embs = EmbeddingService.embed(texts)
+        for r, e in zip(rows, embs):
+            vidx.add(r["id"], scope, r["type"],
+                     self._embed_text(r["name"], r["description"]), e)
+
     async def _ensure_vectors(self, scope: str) -> None:
         """lazy 回填:补齐该 scope 在向量库缺失的记忆。失败静默。"""
         try:
             rows = await self.repo.list_by_scope(scope)
             if not rows:
                 return
-            vidx = MemoryVectorIndex()
-            have = vidx.ids_in_scope(scope)
+            have = MemoryVectorIndex().ids_in_scope(scope)
             missing = [r for r in rows if r["id"] not in have]
-            if not missing:
-                return
-            texts = [self._embed_text(r["name"], r["description"]) for r in missing]
-            embs = EmbeddingService.embed(texts)
-            for r, e in zip(missing, embs):
-                vidx.add(r["id"], scope, r["type"],
-                         self._embed_text(r["name"], r["description"]), e)
+            self._write_vectors(scope, missing)
         except Exception as e:  # noqa: BLE001
             logger.warning("ensure_vectors_failed", scope=scope, error=str(e))
 
@@ -376,15 +379,9 @@ class MemoryService:
         await self.repo.replace_all_bulk(scope, new_items)
         # Phase 2:同步向量(清 scope 旧向量,为新记录回填;失败静默,下次 select 补)
         try:
-            vidx = MemoryVectorIndex()
-            vidx.delete_scope(scope)
+            MemoryVectorIndex().delete_scope(scope)
             fresh = await self.repo.list_by_scope(scope)
-            if fresh:
-                texts = [self._embed_text(r["name"], r["description"]) for r in fresh]
-                embs = EmbeddingService.embed(texts)
-                for r, e in zip(fresh, embs):
-                    vidx.add(r["id"], scope, r["type"],
-                             self._embed_text(r["name"], r["description"]), e)
+            self._write_vectors(scope, fresh)
         except Exception as e:  # noqa: BLE001
             logger.warning("consolidate_vector_sync_failed",
                            scope=scope, error=str(e))

@@ -58,10 +58,6 @@ class MemoryVectorIndex:
     def delete_scope(self, scope: str) -> None:
         self._c.delete(where={"scope": scope})
 
-    def delete_ids(self, ids: list[str]) -> None:
-        if ids:
-            self._c.delete(ids=ids)
-
     def ids_in_scope(self, scope: str) -> set[str]:
         res = self._c.get(where={"scope": scope})
         return set(res.get("ids", []))

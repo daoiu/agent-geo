@@ -129,6 +129,25 @@ async def db_session(temp_db: str, monkeypatch) -> AsyncGenerator[AsyncSession, 
 
 
 @pytest.fixture
+def mock_memory_vectors():
+    """Phase 2:mock 记忆向量依赖(EmbeddingService + MemoryVectorIndex)。
+
+    杜绝测试真加载 bge(沙箱无外网会卡死)/写真 ChromaDB。默认 embed 返回假向量、
+    向量库为空。需要精确控制的用例可在自己的 with patch(...) 里覆盖。
+    非 autouse:仅 MemoryService/react_loop 记忆集成测试通过 autouse 桩引用它,
+    test_memory_vector.py 测真 ChromaDB 不受影响。
+    """
+    from unittest.mock import patch
+
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockEmb.embed.side_effect = lambda texts: [[1.0] + [0.0] * 511 for _ in texts]
+        MockVidx.return_value.ids_in_scope.return_value = set()
+        MockVidx.return_value.query.return_value = []
+        yield MockEmb, MockVidx
+
+
+@pytest.fixture
 def client(temp_db: str, monkeypatch) -> Generator[TestClient, None, None]:
     """FastAPI TestClient with isolated test DB."""
     from cryptography.fernet import Fernet

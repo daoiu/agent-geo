@@ -15,15 +15,9 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _mock_memory_vectors():
-    """默认 mock 向量依赖,杜绝真加载 bge(沙箱无外网会卡死)/写真 ChromaDB。
-    个别用例的 with patch(...) 会在其块内覆盖。"""
-    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
-         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
-        MockEmb.embed.side_effect = lambda texts: [[1.0] + [0.0] * 511 for _ in texts]
-        MockVidx.return_value.ids_in_scope.return_value = set()
-        MockVidx.return_value.query.return_value = []
-        yield
+def _mock_memory_vectors(mock_memory_vectors):
+    """默认 mock 向量依赖(共享 fixture 见 conftest);个别用例的 with patch 覆盖。"""
+    yield
 
 
 def _fake_chat_factory(captured: list[list[dict[str, Any]]]):
