@@ -141,37 +141,17 @@ async def test_delete_kb_cascades(db_session) -> None:
 
 @pytest.mark.asyncio
 async def test_search_chunks_hybrid_uses_hybrid_search(db_session) -> None:
-    """search_chunks_hybrid should delegate to HybridSearch service."""
-    from unittest.mock import patch, AsyncMock
-    from app.models.orm_v02 import KnowledgeBaseORM, KnowledgeChunkORM, KnowledgeDocumentORM
+    """DEPRECATED — search_chunks_hybrid 已在 P0#3 阶段 1 废弃。
 
-    # Setup — flush between inserts to satisfy foreign keys
-    kb = KnowledgeBaseORM(id="kb1", name="KB")
-    db_session.add(kb)
-    await db_session.flush()
-    doc = KnowledgeDocumentORM(id="d1", kb_id="kb1", filename="x.txt",
-                               file_path="/tmp/x.txt", file_type="txt",
-                               file_size=100, parse_status="success",
-                               chunk_count=1)
-    db_session.add(doc)
-    await db_session.flush()
-    chunk = KnowledgeChunkORM(id="c1", doc_id="d1", kb_id="kb1",
-                               chunk_index=0, content="test", content_length=4)
-    db_session.add(chunk)
-    await db_session.commit()
+    原行为 (repo 委派给 HybridSearch) 违反 AGENTS.md §4 架构分层
+    (repositories 不允许 import services)。该方法已迁移到
+    tool_executor._execute_search_knowledge 直接调用 HybridSearch。
+    """
+    from app.repositories.knowledge_repo import KnowledgeRepository
 
     repo = KnowledgeRepository(db_session)
-    with patch("app.services.hybrid_search.HybridSearch") as MockHS:
-        MockHS.return_value.search = AsyncMock(return_value=[
-            {"id": "c1", "content": "test", "metadata": {}, "_rrf_score": 1.0, "_sources": ["vector", "keyword"]}
-        ])
-        results = await repo.search_chunks_hybrid("kb1", "test query", top_k=5)
-
-    assert len(results) == 1
-    assert results[0]["id"] == "c1"
-    MockHS.return_value.search.assert_called_once_with(
-        kb_id="kb1", query="test query", top_k=5
-    )
+    with pytest.raises(NotImplementedError, match="P0#3"):
+        await repo.search_chunks_hybrid("kb1", "test query", top_k=5)
 
 
 @pytest.mark.asyncio

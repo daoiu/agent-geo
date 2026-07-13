@@ -265,15 +265,16 @@ class KnowledgeRepository:
         query: str,
         top_k: int = 5,
     ) -> list[dict]:
-        """Hybrid search: vector + keyword + RRF fusion.
+        """Hybrid search delegate — DEPRECATED.
 
-        Returns top_k chunks ordered by RRF score. Each result has:
-            - id: chunk UUID
-            - content: chunk text
-            - metadata: {doc_id, chunk_index, kb_id}
-            - _rrf_score: combined relevance score
-            - _sources: list of ['vector', 'keyword']
+        阶段 1 Task 3 (P0#3): 该方法已废弃,repositories 层不再依赖 services 层
+        (违反架构分层,见 AGENTS.md §4)。调用方应直接使用
+        `app.services.hybrid_search.HybridSearch().search(kb_id, query, top_k)`。
+
+        保留此占位以避免破坏历史测试 mock 引用;真实调用已迁移到
+        tool_executor._execute_search_knowledge。
         """
-        # Import here to avoid circular import
-        from app.services.hybrid_search import HybridSearch
-        return await HybridSearch().search(kb_id=kb_id, query=query, top_k=top_k)
+        raise NotImplementedError(
+            "search_chunks_hybrid 已在 P0#3 阶段 1 废弃。"
+            "请使用 HybridSearch().search(kb_id, query, top_k) 直接调用。"
+        )

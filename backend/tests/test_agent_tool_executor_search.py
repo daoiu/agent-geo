@@ -4,6 +4,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.domain.agent.tool_executor import ToolExecutor
 from app.domain.agent.tools import SearchKnowledgeArgs
@@ -11,7 +12,7 @@ from app.domain.agent.tools import SearchKnowledgeArgs
 
 @pytest.mark.asyncio
 async def test_search_with_kb_id_uses_single_kb_hybrid():
-    """kb_id 传入时走 repo.search_chunks_hybrid（单库路径，保持原行为）."""
+    """kb_id 传入时走 HybridSearch().search（单库路径，P0#3 后由 tool_executor 直接调）."""
     executor = ToolExecutor(session_id="s1")
     args = SearchKnowledgeArgs(kb_id="kb-1", query="云吞", limit=5)
 
@@ -21,13 +22,18 @@ async def test_search_with_kb_id_uses_single_kb_hybrid():
          "_rrf_score": 0.05, "_sources": ["keyword"]},
     ]
 
-    with patch(
-        "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
-        return_value=fake_result,
-    ) as MockRepoSearch:
-        result = await executor._execute_search_knowledge(args)
+    with patch("app.services.hybrid_search.HybridSearch") as MockHS:
+        MockHS.return_value.search = AsyncMock(return_value=fake_result)
+        # 让 kb_name 回查降级为 None（避免依赖真实 DB session）
+        with patch(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            new=AsyncMock(side_effect=SQLAlchemyError("mock: no db")),
+        ):
+            result = await executor._execute_search_knowledge(args)
 
-    MockRepoSearch.assert_called_once_with(kb_id="kb-1", query="云吞", top_k=5)
+    MockHS.return_value.search.assert_called_once_with(
+        kb_id="kb-1", query="云吞", top_k=5
+    )
     assert result["kb_id"] == "kb-1"
     assert len(result["chunks"]) == 1
     assert result["chunks"][0]["id"] == "c1"
@@ -73,11 +79,13 @@ async def test_search_chunks_have_unified_shape():
          "metadata": {"doc_id": "d1", "chunk_index": 0, "kb_id": "kb-1"},
          "_rrf_score": 0.1, "_sources": ["keyword"]},
     ]
-    with patch(
-        "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
-        return_value=fake,
-    ):
-        result = await executor._execute_search_knowledge(args)
+    with patch("app.services.hybrid_search.HybridSearch") as MockHS:
+        MockHS.return_value.search = AsyncMock(return_value=fake)
+        with patch(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            new=AsyncMock(side_effect=SQLAlchemyError("mock")),
+        ):
+            result = await executor._execute_search_knowledge(args)
     chunk = result["chunks"][0]
     # 缺省字段当 None，但 keys 必须存在，便于 LLM 一致处理
     for key in ("kb_name", "doc_filename"):
@@ -94,9 +102,11 @@ async def test_search_truncates_content_at_500_chars():
         "metadata": {"doc_id": "d1", "chunk_index": 0, "kb_id": "kb-1"},
         "_rrf_score": 0.1, "_sources": ["keyword"]},
     ]
-    with patch(
-        "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
-        return_value=fake,
-    ):
-        result = await executor._execute_search_knowledge(args)
+    with patch("app.services.hybrid_search.HybridSearch") as MockHS:
+        MockHS.return_value.search = AsyncMock(return_value=fake)
+        with patch(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            new=AsyncMock(side_effect=SQLAlchemyError("mock")),
+        ):
+            result = await executor._execute_search_knowledge(args)
     assert len(result["chunks"][0]["content"]) == 500

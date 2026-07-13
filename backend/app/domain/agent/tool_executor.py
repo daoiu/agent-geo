@@ -230,18 +230,22 @@ class ToolExecutor:
             }
 
         # kb_id 传：单库路径（v0.5 hybrid, 行为不变）
+        # P0#3 阶段 1: 由本层直接调 HybridSearch（之前是 repo.search_chunks_hybrid
+        # 委派，已废弃以解除 repositories→services 反向依赖）。
         from sqlalchemy.exc import SQLAlchemyError
 
         from app.core.db import get_session_factory
         from app.repositories.knowledge_repo import KnowledgeRepository
+        from app.services.hybrid_search import HybridSearch
+
+        hits = await HybridSearch().search(
+            kb_id=args.kb_id,
+            query=args.query,
+            top_k=args.limit,
+        )
 
         async with get_session_factory()() as session:
             repo = KnowledgeRepository(session)
-            hits = await repo.search_chunks_hybrid(
-                kb_id=args.kb_id,
-                query=args.query,
-                top_k=args.limit,
-            )
             # 回查 KB name 用于 LLM 上下文；DB 层异常降级为 None，不阻断召回
             try:
                 kb = await repo.get_kb(args.kb_id)

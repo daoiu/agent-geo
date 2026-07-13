@@ -4,6 +4,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.domain.agent.tool_executor import ToolExecutor
 
@@ -330,8 +331,13 @@ class TestSearchKnowledge:
             ]
 
         monkeypatch.setattr(
-            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            "app.services.hybrid_search.HybridSearch.search",
             fake_hybrid,
+        )
+        # mock kb_name 回查降级（避免依赖真实 DB session）
+        monkeypatch.setattr(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            AsyncMock(side_effect=SQLAlchemyError("mock: no db")),
         )
 
         result = await executor._execute_search_knowledge(
@@ -364,8 +370,12 @@ class TestSearchKnowledge:
             ]
 
         monkeypatch.setattr(
-            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            "app.services.hybrid_search.HybridSearch.search",
             fake_hybrid,
+        )
+        monkeypatch.setattr(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            AsyncMock(side_effect=SQLAlchemyError("mock: no db")),
         )
 
         result = await executor._execute_search_knowledge(
@@ -385,8 +395,12 @@ class TestSearchKnowledge:
             return []
 
         monkeypatch.setattr(
-            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            "app.services.hybrid_search.HybridSearch.search",
             fake_hybrid,
+        )
+        monkeypatch.setattr(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            AsyncMock(side_effect=SQLAlchemyError("mock: no db")),
         )
 
         result = await executor._execute_search_knowledge(
@@ -413,8 +427,12 @@ class TestSearchKnowledge:
             ]
 
         monkeypatch.setattr(
-            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            "app.services.hybrid_search.HybridSearch.search",
             fake_hybrid,
+        )
+        monkeypatch.setattr(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            AsyncMock(side_effect=SQLAlchemyError("mock: no db")),
         )
 
         result = await executor._execute_search_knowledge(
@@ -430,7 +448,7 @@ class TestSearchKnowledge:
     async def test_search_knowledge_uses_hybrid_search(
         self, executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """v0.5: _execute_search_knowledge should use search_chunks_hybrid, not keyword-only."""
+        """P0#3: _execute_search_knowledge 应直接调 HybridSearch().search（不再走 repo 委派）."""
         called_kwargs: dict = {}
 
         async def fake_hybrid(self, **kwargs):
@@ -446,8 +464,12 @@ class TestSearchKnowledge:
             ]
 
         monkeypatch.setattr(
-            "app.repositories.knowledge_repo.KnowledgeRepository.search_chunks_hybrid",
+            "app.services.hybrid_search.HybridSearch.search",
             fake_hybrid,
+        )
+        monkeypatch.setattr(
+            "app.repositories.knowledge_repo.KnowledgeRepository.get_kb",
+            AsyncMock(side_effect=SQLAlchemyError("mock: no db")),
         )
 
         result = await executor._execute_search_knowledge(
