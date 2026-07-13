@@ -209,6 +209,45 @@ async def _do_extract_after_turn(
 
 
 # ===========================================================================
+# Phase 1 — 埋点 helpers
+# ===========================================================================
+
+
+def _new_metrics() -> dict:
+    return {
+        "iterations": 0, "llm_calls": 0, "tool_calls": 0,
+        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+        "usage_seen": False,
+    }
+
+
+def _accumulate(agg: dict, usage: dict | None) -> None:
+    agg["iterations"] += 1
+    agg["llm_calls"] += 1
+    if not usage:
+        return
+    agg["usage_seen"] = True
+    for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        v = usage.get(k)
+        if v is not None:
+            agg[k] += v
+
+
+def _emit_metrics(
+    agg: dict, session_id: str, device_id: str | None, outcome: str
+) -> None:
+    logger.info(
+        "agent_turn_metrics",
+        session_id=session_id, device_id=device_id, outcome=outcome,
+        iterations=agg["iterations"], llm_calls=agg["llm_calls"],
+        tool_calls=agg["tool_calls"],
+        prompt_tokens=agg["prompt_tokens"] if agg["usage_seen"] else None,
+        completion_tokens=agg["completion_tokens"] if agg["usage_seen"] else None,
+        total_tokens=agg["total_tokens"] if agg["usage_seen"] else None,
+    )
+
+
+# ===========================================================================
 # ReAct 主循环
 # ===========================================================================
 
@@ -232,11 +271,13 @@ async def _drive_react_loop(
         memory_index_segment = await memory_service.build_memory_segment(scope)
         memory_block = await memory_service.load_relevant_memories(scope, history)
 
+    agg = _new_metrics()
     for _iteration in range(MAX_REACT_ITERATIONS):
         messages = build_messages(history, memory_index_segment=memory_index_segment)
         messages = _apply_memory_prepend(messages, memory_block)
 
         response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
+        _accumulate(agg, response.get("usage"))
         content = response.get("content")
         tool_calls = response.get("tool_calls") or []
 
@@ -278,6 +319,7 @@ async def _drive_react_loop(
                     "tool_name": tool_name,
                     "arguments": tool_args,
                 }
+                agg["tool_calls"] += 1
 
                 try:
                     result = await executor.execute(tool_name, tool_args)
@@ -285,6 +327,7 @@ async def _drive_react_loop(
                     from app.domain.exceptions import HumanConfirmationRequired
 
                     if isinstance(exc, HumanConfirmationRequired):
+                        _emit_metrics(agg, session_id, device_id, "human_confirmation")
                         yield {
                             "event": "human_confirmation_required",
                             "message_id": exc.message_id,
@@ -331,9 +374,11 @@ async def _drive_react_loop(
             )
             _PENDING_EXTRACTS.add(task)
             task.add_done_callback(_PENDING_EXTRACTS.discard)
+            _emit_metrics(agg, session_id, device_id, "turn_complete")
             yield {"event": "turn_complete"}
             return
 
+    _emit_metrics(agg, session_id, device_id, "max_iterations_reached")
     yield {
         "event": "max_iterations_reached",
         "message": f"agent 达到最大推理步数 ({MAX_REACT_ITERATIONS})",
