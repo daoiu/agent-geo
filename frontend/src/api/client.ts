@@ -23,6 +23,7 @@ import type {
   AgentSession,
   AgentSessionDetail,
 } from '@/types/v0.4';
+import { getDeviceId } from '@/lib/deviceId';
 
 const BASE = '/api';
 
@@ -32,9 +33,17 @@ class ApiError extends Error {
   }
 }
 
+function authHeaders(extra?: HeadersInit): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'X-Device-Id': getDeviceId(),
+    ...(extra as Record<string, string> | undefined),
+  };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(init?.headers),
     ...init,
   });
   if (!resp.ok) {
@@ -306,7 +315,7 @@ export async function* sendAgentMessageStream(
     `${BASE}/agent/sessions/${sessionId}/messages`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ content }),
     },
   );
@@ -338,7 +347,7 @@ export async function* confirmAgentActionStream(
     `${BASE}/agent/sessions/${sessionId}/messages/${messageId}/confirm`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ approved }),
     },
   );
