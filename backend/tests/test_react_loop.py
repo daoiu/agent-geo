@@ -475,3 +475,66 @@ def test_phase3_settings_defaults():
     assert s.context_window_messages == 40
     assert s.tool_result_max_chars == 2000
     assert s.tool_result_keep_recent == 3
+
+
+# ============================================================================
+# Phase 3 — build_messages 滑动窗口 + 旧 tool 结果截断
+# ============================================================================
+
+
+def test_build_messages_window_keeps_last_n():
+    history = [{"role": "user", "content": f"m{i}"} for i in range(10)]
+    messages = build_messages(history, window_messages=3)
+    assert messages[0]["role"] == "system"
+    assert [m["content"] for m in messages[1:]] == ["m7", "m8", "m9"]
+
+
+def test_build_messages_window_none_keeps_all():
+    history = [{"role": "user", "content": f"m{i}"} for i in range(10)]
+    messages = build_messages(history)
+    assert len([m for m in messages if m["role"] == "user"]) == 10
+
+
+def test_build_messages_window_drops_dangling_pair():
+    history = [
+        {"role": "user", "content": "老消息填充1"},
+        {"role": "assistant", "content": None,
+         "tool_calls": [{"id": "tc1", "function": {"name": "x", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "tc1", "content": "result"},
+        {"role": "user", "content": "新消息"},
+    ]
+    messages = build_messages(history, window_messages=2)
+    assert all(m.get("role") != "tool" for m in messages)
+
+
+def test_build_messages_truncates_old_tool_result():
+    big = "x" * 5000
+    history = [
+        {"role": "assistant", "content": None,
+         "tool_calls": [{"id": "a", "function": {"name": "t", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "a", "content": big},
+        {"role": "assistant", "content": None,
+         "tool_calls": [{"id": "b", "function": {"name": "t", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "b", "content": "recent"},
+    ]
+    messages = build_messages(history, tool_result_max_chars=100,
+                              tool_result_keep_recent=1)
+    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    a_msg = next(m for m in tool_msgs if m["tool_call_id"] == "a")
+    b_msg = next(m for m in tool_msgs if m["tool_call_id"] == "b")
+    assert a_msg["content"].endswith("…(truncated)")
+    assert len(a_msg["content"]) <= 100 + len("…(truncated)")
+    assert b_msg["content"] == "recent"
+
+
+def test_build_messages_truncate_boundary_not_cut():
+    exact = "y" * 100
+    history = [
+        {"role": "assistant", "content": None,
+         "tool_calls": [{"id": "a", "function": {"name": "t", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "a", "content": exact},
+    ]
+    messages = build_messages(history, tool_result_max_chars=100,
+                              tool_result_keep_recent=0)
+    tool_msg = next(m for m in messages if m.get("role") == "tool")
+    assert tool_msg["content"] == exact

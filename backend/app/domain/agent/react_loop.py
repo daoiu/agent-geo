@@ -47,6 +47,10 @@ _PENDING_EXTRACTS: set[asyncio.Task] = set()
 def build_messages(
     history: list[dict],
     memory_index_segment: str = "",
+    *,
+    window_messages: int | None = None,
+    tool_result_max_chars: int | None = None,
+    tool_result_keep_recent: int = 0,
 ) -> list[dict]:
     """把 DB 风格历史转换为 OpenAI chat completion 协议格式。
 
@@ -64,6 +68,17 @@ def build_messages(
     - v0.6 P1.6:`memory_index_segment`（L2 索引段）拼到系统 prompt 末尾,
       仅常量部分参与 prompt cache,索引内容改变不需要重建整段 system
     """
+    # Phase 3 ①滑动窗口:先裁,配对计算基于窗口后的历史(切断的一侧由 kept_ids 丢弃)
+    if window_messages is not None and len(history) > window_messages:
+        history = history[-window_messages:]
+
+    # Phase 3 ③截断预算:最近 keep_recent 个 tool 结果保全量,其余超长截断
+    tool_positions = [i for i, m in enumerate(history) if m.get("role") == "tool"]
+    if tool_result_keep_recent > 0:
+        keep_full = set(tool_positions[-tool_result_keep_recent:])
+    else:
+        keep_full = set()
+
     # 先扫出「已有结果」的 tool_call_id（存在对应 tool 消息）与「被 assistant 声明」的
     # tool_call_id；只有两者交集(kept_ids)才是可安全重放的配对。
     resolved_ids: set[str] = {
@@ -87,7 +102,7 @@ def build_messages(
         "content": AGENT_SYSTEM_PROMPT + memory_index_segment,
     }]
 
-    for msg in history:
+    for idx, msg in enumerate(history):
         role = msg["role"]
         if role == "user":
             out.append({"role": "user", "content": msg["content"]})
@@ -139,10 +154,17 @@ def build_messages(
         elif role == "tool":
             # 只发能对上 assistant tool_call 的结果；孤儿 tool 跳过
             if msg.get("tool_call_id") in kept_ids:
+                content = msg["content"]
+                # Phase 3 ③截断:非最近 keep_recent 个且超长 → 截断标记
+                if (tool_result_max_chars is not None
+                        and idx not in keep_full
+                        and isinstance(content, str)
+                        and len(content) > tool_result_max_chars):
+                    content = content[:tool_result_max_chars] + "…(truncated)"
                 out.append({
                     "role": "tool",
                     "tool_call_id": msg["tool_call_id"],
-                    "content": msg["content"],
+                    "content": content,
                 })
         # 其他 role 忽略（防御性）
 
