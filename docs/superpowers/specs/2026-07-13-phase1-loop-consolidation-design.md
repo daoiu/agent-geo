@@ -244,7 +244,9 @@ mock LLM 模板：`AsyncMock` 返回带 `usage` 的对象（`SimpleNamespace(pro
 
 > 重构时若发现潜在 bug / 坏味，登记在此，交由后续 Phase 或独立修复，保持本 Phase 严格等价。
 
-- （实施时填充）
+- **死变量 `should_continue`**（原两处循环）：设为 `True` 后仅有 `if not should_continue: break`，无处置为 `False`，是死代码。抽 `_drive_react_loop` 时直接省略——行为等价。
+- **checkpoint 内 `settings = get_settings()` 变为未用**：原仅喂给第二循环的 `llm = LLMClient(settings)`，委托后删除，故一并移除。
+- **测试隔离脆弱（既有，未修）**：`test_react_loop.py` 与 `test_react_loop_memory_integration.py` 同进程运行时，`test_system_prompt_includes_memory_index` 偶发失败；根因是 `_PENDING_EXTRACTS` 的 fire-and-forget 后台协程跨测试泄漏，污染后一测试的 memory scope 并留下 "no active connection" / "coroutine ignored GeneratorExit" 噪音。各文件单独跑均绿，全量 515 亦绿。属测试基建问题，非本 Phase 目标——建议后续给 fire-and-forget extract 加测试期 drain/禁用开关。
 
 ## 11. 决策日志
 
