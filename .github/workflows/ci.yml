@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install ruff==0.6.0 mypy==1.11.0
+
+      - name: Ruff check
+        working-directory: backend
+        run: python -m ruff check app/ evals/
+
+      - name: Pytest
+        working-directory: backend
+        run: python -m pytest tests/ -v --tb=short
+
+      - name: MyPy (informational)
+        working-directory: backend
+        run: |
+          python -m mypy app/ 2>&1 | tee mypy-output.txt || true
+          echo "Mypy informational only — failures don't block CI"
+
+      - name: Eval baseline (optional)
+        working-directory: backend
+        env:
+          # LLM-as-judge 需要 OPENAI_API_KEY 等,无 secret 时 judge 退化到启发式
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python -m evals.runner || echo "Eval baseline failed (allowed in CI)"

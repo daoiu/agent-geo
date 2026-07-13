@@ -13,3 +13,35 @@ addopts = "-v --tb=short"
 [tool.coverage.run]
 source = ["app"]
 omit = ["tests/*", "data/*"]
+
+# ---------------------------------------------------------------------------
+# Ruff — 基础 lint(阶段 1 P0#2 新增)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["data/*", ".venv/*"]
+
+[tool.ruff.lint]
+# E/F/W: pycodestyle/pyflakes/pycodestyle warnings
+# I: isort(import 排序)
+# B: bugbear(常见 bug)
+# BLE: blind-except(宽泛捕获检测,对应 P0#6 目标)
+select = ["E", "F", "W", "I", "B", "BLE"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B008"]  # tests 里 fixture 参数化常用 B008
+
+# ---------------------------------------------------------------------------
+# MyPy — 类型检查(阶段 1 P0#2 新增,初次允许警告)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = false  # 阶段 1 暂关闭,逐步开启
+disallow_untyped_defs = false
+ignore_errors = false
