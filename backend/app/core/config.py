@@ -88,6 +88,9 @@ class Settings(BaseSettings):
 
     # v0.6 P1.6 — L2 跨会话记忆
     memory_consolidate_threshold: int = 50  # 行数 ≥ 此值触发 consolidate
+    # Phase 2 — 记忆层向量化
+    memory_dedup_max_distance: float = 0.15  # cosine distance < 此值视为语义重复
+    memory_extract_min_chars: int = 8         # 最近 user 文本短于此则跳过 extract
 
     @property
     def enabled_providers(self) -> list[str]:

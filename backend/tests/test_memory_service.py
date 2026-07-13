@@ -363,3 +363,10 @@ async def test_default_threshold_is_50():
 
     settings = get_settings()
     assert settings.memory_consolidate_threshold == 50
+
+
+def test_phase2_settings_defaults():
+    from app.core.config import Settings
+    s = Settings(deepseek_api_key="x")
+    assert s.memory_dedup_max_distance == 0.15
+    assert s.memory_extract_min_chars == 8
