@@ -60,6 +60,18 @@ class _ProviderConfig(BaseModel):
     model: str
 
 
+def _extract_usage(response) -> dict | None:
+    """从 OpenAI 兼容响应提取 token usage;provider 不返回时 None。"""
+    u = getattr(response, "usage", None)
+    if u is None:
+        return None
+    return {
+        "prompt_tokens": getattr(u, "prompt_tokens", None),
+        "completion_tokens": getattr(u, "completion_tokens", None),
+        "total_tokens": getattr(u, "total_tokens", None),
+    }
+
+
 def _normalize_base_url(url: str) -> str:
     """Auto-append ``/v1`` when the user supplied a bare host.
 
@@ -297,6 +309,7 @@ class LLMClient:
         return {
             "content": message.content,
             "tool_calls": tool_calls,
+            "usage": _extract_usage(response),
         }
 
     async def simple_chat(self, prompt: str) -> str:
@@ -318,6 +331,7 @@ class LLMClient:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
         )
+        logger.info("simple_chat_usage", usage=_extract_usage(response))
         return response.choices[0].message.content or ""
 
     @staticmethod
