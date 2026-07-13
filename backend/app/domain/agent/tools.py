@@ -153,9 +153,10 @@ _SEARCH_SCHEMA: dict = {
 _GENERATE_SCHEMA: dict = {
     "name": "generate_article",
     "description": (
-        "基于指定知识库生成一篇文章草稿。生成前会向用户确认。"
-        "返回的内容仅供预览，正式发布需要用户去 v0.2 任务列表完成完整任务流程"
-        "（创建任务 → 生成 → 审核 → 发布）。"
+        "基于指定知识库生成一篇文章草稿。"
+        "v0.6 P1.6+ 默认走后台任务（无需用户确认，内部 article_count=1），"
+        "返回 task_id，用户可在 /tasks/{task_id} 审核。"
+        "例外：用户明确说'实时预览'才走老 HumanConfirmation 路径（暂未启用）。"
     ),
     "parameters": {
         "type": "object",
