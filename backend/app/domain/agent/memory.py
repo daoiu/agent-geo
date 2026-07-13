@@ -26,8 +26,10 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.domain.agent.memory_vector import MemoryVectorIndex
 from app.domain.llm_client import LLMClient
 from app.repositories.memory_repo import MemoryRepository
+from app.services.embedding import EmbeddingService
 
 logger = structlog.get_logger()
 
@@ -100,7 +102,7 @@ class MemoryService:
     ) -> dict:
         if type not in MEMORY_TYPES:
             raise ValueError(f"unknown memory type: {type}")
-        return await self.repo.create(
+        created = await self.repo.create(
             scope=scope,
             name=name,
             description=description,
@@ -108,6 +110,39 @@ class MemoryService:
             body_md=body,
             session_id=session_id,
         )
+        try:
+            emb = EmbeddingService.embed([self._embed_text(name, description)])[0]
+            MemoryVectorIndex().add(
+                created["id"], scope, type,
+                self._embed_text(name, description), emb,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("write_memory_vector_failed",
+                           scope=scope, name=name, error=str(e))
+        return created
+
+    @staticmethod
+    def _embed_text(name: str, description: str) -> str:
+        return f"{name}。{description}"
+
+    async def _ensure_vectors(self, scope: str) -> None:
+        """lazy 回填:补齐该 scope 在向量库缺失的记忆。失败静默。"""
+        try:
+            rows = await self.repo.list_by_scope(scope)
+            if not rows:
+                return
+            vidx = MemoryVectorIndex()
+            have = vidx.ids_in_scope(scope)
+            missing = [r for r in rows if r["id"] not in have]
+            if not missing:
+                return
+            texts = [self._embed_text(r["name"], r["description"]) for r in missing]
+            embs = EmbeddingService.embed(texts)
+            for r, e in zip(missing, embs):
+                vidx.add(r["id"], scope, r["type"],
+                         self._embed_text(r["name"], r["description"]), e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ensure_vectors_failed", scope=scope, error=str(e))
 
     # ------------------------------------------------------------------
     # select_relevant — LLM 选相关,失败降级关键词

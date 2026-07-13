@@ -370,3 +370,36 @@ def test_phase2_settings_defaults():
     s = Settings(deepseek_api_key="x")
     assert s.memory_dedup_max_distance == 0.15
     assert s.memory_extract_min_chars == 8
+
+
+# ============================================================================
+# Phase 2 — 双写向量 + 回填
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_write_memory_double_writes_vector(db_session):
+    from app.domain.agent.memory import MemoryService
+    svc = MemoryService(db_session)
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        await svc.write_memory(scope="d", name="简洁", type="user",
+                               description="喜欢简洁", body="...")
+        MockVidx.return_value.add.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ensure_vectors_backfills_missing(db_session):
+    from app.domain.agent.memory import MemoryService
+    svc = MemoryService(db_session)
+    with patch("app.domain.agent.memory.MemoryVectorIndex"), \
+         patch("app.domain.agent.memory.EmbeddingService"):
+        await svc.write_memory(scope="d", name="a", type="user",
+                               description="da", body="b")
+    with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
+         patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
+        MockVidx.return_value.ids_in_scope.return_value = set()
+        MockEmb.embed.return_value = [[1.0] + [0.0] * 511]
+        await svc._ensure_vectors("d")
+        MockVidx.return_value.add.assert_called_once()
