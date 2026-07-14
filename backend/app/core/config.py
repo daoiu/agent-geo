@@ -111,6 +111,13 @@ class Settings(BaseSettings):
     # v0.6+ P1#25 — pending 超时自动取消（Task 26）
     pending_timeout_minutes: int = 5  # pending_confirmation 超 5 分钟自动取消
 
+    # v0.7+ P2#50 — 自适应模型分级（Task 36）
+    # 三档 provider 名:cheap(轻量任务) / standard(默认) / premium(关键决策)
+    # 默认沿用 llm_providers 中的第一项,确保向后兼容。
+    model_tier_cheap: str = "deepseek"
+    model_tier_standard: str = "deepseek"
+    model_tier_premium: str = "deepseek"
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
