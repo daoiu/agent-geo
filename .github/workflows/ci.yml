@@ -44,8 +44,12 @@ jobs:
 
       - name: Eval baseline (optional)
         working-directory: backend
+        # evals 失败不阻塞 CI: 无 OPENAI_API_KEY 时 judge 退化为启发式,允许 pass rate 偏低
+        continue-on-error: true
         env:
           # LLM-as-judge 需要 OPENAI_API_KEY 等,无 secret 时 judge 退化到启发式
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          python -m evals.runner || echo "Eval baseline failed (allowed in CI)"
+          python -m evals.runner > eval-output.json 2> eval-stderr.log || echo "Eval baseline returned non-zero (see eval-output.json / eval-stderr.log)"
+          echo "## Eval baseline summary:" >> $GITHUB_STEP_SUMMARY
+          cat eval-output.json >> $GITHUB_STEP_SUMMARY || echo "(no eval output)"
