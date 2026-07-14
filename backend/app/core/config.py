@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     # v0.6+ P1#24 — 慢查询告警阈值（Task 25）
     llm_slow_query_threshold_ms: int = 60_000  # LLM 调用超过 60s 触发 warning
 
+    # v0.6+ P1#25 — pending 超时自动取消（Task 26）
+    pending_timeout_minutes: int = 5  # pending_confirmation 超 5 分钟自动取消
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
