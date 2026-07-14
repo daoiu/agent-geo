@@ -30,7 +30,7 @@ from app.domain.agent.memory import MemoryService, scope_key
 from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.domain.agent.tool_executor import ToolExecutor
 from app.domain.agent.tools import TOOLS
-from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
+from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS, _TOOL_TRANSIENT_EXCEPTIONS
 from app.domain.llm_client import LLMClient
 
 # v0.6+ P1#11（Task 12）：tiktoken 编码器懒加载缓存。None 表示未初始化。
@@ -445,19 +445,10 @@ async def _drive_react_loop(
 
                 try:
                     result = await executor.execute(tool_name, tool_args)
-                except Exception as exc:
-                    from app.domain.exceptions import HumanConfirmationRequired
-
-                    if isinstance(exc, HumanConfirmationRequired):
-                        _emit_metrics(agg, session_id, device_id, "human_confirmation")
-                        yield {
-                            "event": "human_confirmation_required",
-                            "message_id": exc.message_id,
-                            "tool_name": exc.tool_name,
-                            "arguments": exc.arguments,
-                        }
-                        return
-
+                except _TOOL_TRANSIENT_EXCEPTIONS as exc:
+                    # v0.6+ P1#15（Task 16）：transient 异常降级为 tool_call_result error,
+                    # LLM 看到错误可决定下一步(继续 / 重试 / 改方案)。
+                    # 编程错误（ValueError / AttributeError 等）不被捕获,向上抛。
                     err_payload = {"error": f"{type(exc).__name__}: {exc}"}
                     async with _open_agent_repo(factory=f) as repo:
                         await repo.create_message(
@@ -471,6 +462,21 @@ async def _drive_react_loop(
                         "result": err_payload,
                     }
                     continue
+                except Exception as exc:
+                    # HumanConfirmationRequired 仍优先识别(yield 暂停事件,return 退出)
+                    from app.domain.exceptions import HumanConfirmationRequired
+
+                    if isinstance(exc, HumanConfirmationRequired):
+                        _emit_metrics(agg, session_id, device_id, "human_confirmation")
+                        yield {
+                            "event": "human_confirmation_required",
+                            "message_id": exc.message_id,
+                            "tool_name": exc.tool_name,
+                            "arguments": exc.arguments,
+                        }
+                        return
+                    # 其他编程错误:向上抛,不被吞
+                    raise
 
                 async with _open_agent_repo(factory=f) as repo:
                     await repo.create_message(

@@ -4,6 +4,7 @@ import asyncio
 
 import httpx
 from openai import APIError, APITimeoutError, RateLimitError
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 
 # Exceptions that should be silently absorbed as "LLM failure" (caller
@@ -18,6 +19,23 @@ _LLM_TRANSIENT_EXCEPTIONS: tuple[type[Exception], ...] = (
     RateLimitError,
     APIError,
     httpx.HTTPError,
+)
+
+
+# v0.6+ P1#15（Task 16）：工具执行失败时的 transient 异常分类。
+# react_loop 的 except 子句应只捕获这个 tuple，把编程错误（ValueError /
+# AttributeError / KeyError / TypeError）向上抛,避免吞掉真实 bug。
+#
+# 包含：DB 连接/操作错误（OperationalError / DBAPIError）+ 异步超时 +
+# HTTP/网络错误（httpx / 内置 ConnectionError）。这些是基础设施层
+# 的瞬时问题,工具调用方可以重试或 LLM 可以基于错误信息改方案。
+_TOOL_TRANSIENT_EXCEPTIONS: tuple[type[Exception], ...] = (
+    asyncio.TimeoutError,
+    OperationalError,        # sqlalchemy: 数据库连接断开/超时
+    DBAPIError,              # sqlalchemy: 通用 DB API 错误
+    httpx.HTTPError,         # httpx: HTTP 请求错误（crawler / 外部 API）
+    httpx.RequestError,      # httpx: 请求级错误基类
+    ConnectionError,         # 内置: socket / DNS 等
 )
 
 
