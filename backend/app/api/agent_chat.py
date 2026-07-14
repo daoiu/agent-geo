@@ -35,9 +35,16 @@ class SendMessageRequest(BaseModel):
 
 
 class ConfirmActionRequest(BaseModel):
-    """确认 / 取消 human-in-the-loop 工具调用。"""
+    """确认 / 取消 human-in-the-loop 工具调用。
+
+    v0.6+ P1#26（Task 27）：
+    - reason: 可选,reject 时记录用户拒绝原因,作为 user 消息写入历史,
+      LLM 下次 turn 能看到并据此调整(避免重复同类请求)
+    - approved=True 时 reason 被忽略
+    """
 
     approved: bool
+    reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +109,10 @@ async def confirm_action(
 
     if not body.approved:
         # 拒绝：标记 resolved + 追加 user/assistant 消息
+        # v0.6+ P1#26（Task 27）：有 reason 时用 reason 作为 user 消息(LLM 下次可见)
         await repo.confirm_message(message_id, approved=False)
-        await repo.create_message(session_id=session_id, role="user", content="取消")
+        user_content = (body.reason or "").strip() or "取消"
+        await repo.create_message(session_id=session_id, role="user", content=user_content)
         await repo.create_message(
             session_id=session_id, role="assistant", content="好的，已取消。"
         )
