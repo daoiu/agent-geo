@@ -82,6 +82,9 @@ def create_app() -> FastAPI:
     app.include_router(monitors.router, prefix="/api")
     app.include_router(agent_sessions.router, prefix="/api")
     app.include_router(agent_chat.router, prefix="/api")
+    # Prometheus 指标(P1#30 / Task 31)
+    from app.core.metrics import router as metrics_router
+    app.include_router(metrics_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

@@ -41,3 +41,6 @@ sentry-sdk[fastapi]==2.19.2
 
 # v0.6+ P1#18 — Langfuse LLM 调用可视化（Task 19；keys 缺失时 init_langfuse 静默 no-op）
 langfuse==2.59.0
+
+# v0.7+ P1#30 — Prometheus 指标导出（Task 31；geo_* 命名空间）
+prometheus-client==0.20.0
