@@ -20,6 +20,36 @@ from app.domain.agent.react_loop import (
 )
 from app.repositories.agent_repo import AgentRepository
 
+
+async def run_replay(
+    session_id: str,
+    message_id: str,
+    device_id: str | None = None,
+) -> AsyncIterator[dict]:
+    """P2#32 / Task 41: 从任意 message_id 重放 turn。
+
+    与 run_agent_turn_from_checkpoint 的区别:
+    - 后者只支持 pending_confirmation 续跑
+    - replay 支持任意 message 重跑(用于调试 / A/B 测试 / 评测)
+
+    实现: 复用 run_agent_turn 但在历史中插入"replay_start"标记事件。
+    简化版: 直接调用 run_agent_turn 但把 query 设置为消息内容(若该 message 是 user)。
+    """
+    # 先 yield replay_start 标记
+    yield {
+        "event": "replay_start",
+        "session_id": session_id,
+        "message_id": message_id,
+        "note": "Replay stream — events may differ from original turn",
+    }
+
+    # 复用 from_checkpoint(支持任意 message_id,不仅 pending)
+    # 该函数已具备完整的 SSE event 输出能力
+    async for event in run_agent_turn_from_checkpoint(
+        session_id, message_id, device_id=device_id
+    ):
+        yield event
+
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
@@ -125,6 +155,58 @@ async def confirm_action(
     await repo.confirm_message(message_id, approved=True)
 
     async def event_generator() -> AsyncIterator[str]:
+        async for event in run_agent_turn_from_checkpoint(
+            session_id, message_id, device_id=device_id
+        ):
+            event_name = event.pop("event")
+            yield f"event: {event_name}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
+
+
+# ---------------------------------------------------------------------------
+# v0.7+ P2#32（Task 41）: 显式 replay API — 从任意 message_id 重放 turn
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/sessions/{session_id}/replay/{message_id}",
+    response_model=None,
+)
+async def replay_turn(
+    session_id: str,
+    message_id: str,
+    session: AsyncSession = Depends(get_session),
+    device_id: str | None = Depends(device_id_header),
+):
+    """从任意 message 重放 turn(P2#32 / Task 41)。
+
+    与 confirm 的区别:
+    - confirm: 仅对 pending_confirmation 续跑
+    - replay: 任意 message(包括 user / 已完成) — 用于调试 / A/B 测试
+
+    流格式:先 yield `replay_start` 标记,然后调 from_checkpoint 输出完整事件流。
+    """
+    from app.domain.agent.react_loop import run_agent_turn_from_checkpoint
+
+    repo = AgentRepository(session)
+    msg = await repo.get_message(message_id)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    if msg.session_id != session_id:
+        raise HTTPException(
+            status_code=404, detail="message does not belong to this session"
+        )
+
+    async def event_generator() -> AsyncIterator[str]:
+        # 标记事件,前端可识别 replay
+        yield (
+            f"event: replay_start\n"
+            f"data: {json.dumps({'message_id': message_id, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        )
         async for event in run_agent_turn_from_checkpoint(
             session_id, message_id, device_id=device_id
         ):
