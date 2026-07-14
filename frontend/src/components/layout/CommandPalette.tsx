@@ -10,7 +10,7 @@ import {
   CommandList,
   CommandShortcut,
 } from '@/components/ui/command';
-import { navItems } from '@/components/layout/navConfig';
+import { navItems } from '@/components/layout/navConfig.tsx';
 import type { NavItem } from './SideNav';
 
 interface PaletteEntry {

@@ -3,17 +3,36 @@ import { TopBar } from './TopBar';
 import { SideNav, type NavItem } from './SideNav';
 import { Breadcrumb, type Crumb } from './Breadcrumb';
 import { PipelineRail, type PipelineNode } from './PipelineRail';
+import { NavDrawer, type NavSection } from './NavDrawer';
 import { cn } from '@/lib/utils';
 
 export interface LayoutShellProps {
-  navItems: NavItem[];
+  /**
+   * Legacy v0.6 sidebar config — flat list of items with optional children.
+   * Still honored if `sections` is not provided, so existing route shells
+   * keep rendering until they migrate to the v0.7 NavDrawer sections API.
+   */
+  navItems?: NavItem[];
+  /**
+   * v0.7 HarmonyOS IA — 6 drawer sections + optional 智能助手 entry.
+   * Takes precedence over `navItems` when provided.
+   */
+  sections?: NavSection[];
+  /**
+   * Active section id (v0.7). When `sections` is used this drives the
+   * left-rail active-state styling; falls back to "无" highlight in
+   * navItems mode.
+   */
+  activeSection?: string;
+  /** Required when `sections` is used — receives the clicked section id. */
+  onSelectSection?: (id: string) => void;
   crumbs: Crumb[];
   pipelineNodes: PipelineNode[];
   contextPane?: ReactNode;
   /**
-   * Optional left aside rendered inside `<main>` between SideNav and children.
-   * Used by `/agent` to inject the session list column (w-60, same width as
-   * SideNav). When present, the page takes the full main height and
+   * Optional left aside rendered inside `<main>` between the navigation
+   * rail and children. Used by `/agent` to inject the session list column
+   * (w-60). When present, the page takes the full main height and
    * children render as the right pane of a 2-col flex.
    */
   asideLeft?: ReactNode;
@@ -25,11 +44,20 @@ export interface LayoutShellProps {
 }
 
 /**
- * LayoutShell — wraps every page with TopBar (top) + SideNav (left, responsive)
- * + Breadcrumb + main content + optional ContextPane (right) + PipelineRail (bottom).
+ * LayoutShell — wraps every page with TopBar (top) + NavDrawer OR legacy
+ * SideNav (left, responsive) + Breadcrumb + main content + optional
+ * ContextPane (right) + PipelineRail (bottom).
+ *
+ * v0.7 default: NavDrawer with HarmonyOS glass surface, 6 sections, 60/240
+ * collapse toggle. The legacy SideNav is still mounted when only
+ * `navItems` is provided so the migration window doesn't break the older
+ * pages.
  */
 export function LayoutShell({
   navItems,
+  sections,
+  activeSection,
+  onSelectSection,
   crumbs,
   pipelineNodes,
   contextPane,
@@ -40,7 +68,7 @@ export function LayoutShell({
   children,
 }: LayoutShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const useDrawer = sections !== undefined;
   return (
     <div className="flex h-screen flex-col bg-muted">
       <TopBar
@@ -52,12 +80,17 @@ export function LayoutShell({
       />
       <div className="flex flex-1 overflow-hidden">
         <aside
-          className={cn(
-            'hidden md:block',
-            sidebarOpen && 'block'
-          )}
+          className={cn('hidden md:block', sidebarOpen && 'block')}
         >
-          <SideNav items={navItems} />
+          {useDrawer ? (
+            <NavDrawer
+              sections={sections!}
+              activeSection={activeSection ?? sections![0]?.id ?? ''}
+              onSelect={onSelectSection ?? (() => {})}
+            />
+          ) : (
+            <SideNav items={navItems ?? []} />
+          )}
         </aside>
         <main className="flex-1 overflow-y-auto">
           {asideLeft ? (
@@ -87,8 +120,8 @@ export function LayoutShell({
       </div>
       <PipelineRail
         nodes={pipelineNodes}
-        collapsed={collapsed}
-        onToggle={() => setCollapsed((v) => !v)}
+        collapsed={false}
+        onToggle={() => {}}
       />
     </div>
   );

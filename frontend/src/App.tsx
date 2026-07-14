@@ -25,7 +25,7 @@ import AgentWorkspace from '@/pages/AgentWorkspace';
 
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
-import { navItems } from '@/components/layout/navConfig';
+import { navItems } from '@/components/layout/navConfig.tsx';
 import { AgentSessionListPanel } from '@/components/layout/AgentSessionListPanel';
 import { CommandPalette, useCommandPalette } from '@/components/layout/CommandPalette';
 import { useDarkMode } from '@/hooks/useDarkMode';
