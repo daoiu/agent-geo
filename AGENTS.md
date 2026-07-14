@@ -100,6 +100,7 @@ scope: eval / retry / memory / arch / harness / review ...
 ### 6.5 不引入新框架
 
 ❌ LangGraph / LangChain / LlamaIndex — 自写 ReAct 循环可控性 + 学习价值
+✅ 例外(2026-07-14): `app/domain/agent/react_loop.py` 单文件主循环可使用 `langgraph>=1.0,<2.0` 与 `langchain-core` — 详见 [`docs/superpowers/specs/2026-07-14-langgraph-react-loop-design.md`](docs/superpowers/specs/2026-07-14-langgraph-react-loop-design.md)
 ❌ 改 ORM 版本结构(orm_v02-v04 演进历史保留)
 ❌ 改业务逻辑(仅工程化补强)
 
