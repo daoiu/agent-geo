@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import device_id_header
 from app.api.diagnosis import get_session
-from app.domain.agent.react_loop import (
-    run_agent_turn,
+from app.domain.agent.dispatch import run_agent_turn
+from app.domain.agent.react_loop import (  # noqa: F401  (Task 14 前保留)
     run_agent_turn_from_checkpoint,
 )
 from app.repositories.agent_repo import AgentRepository
