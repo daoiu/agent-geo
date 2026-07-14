@@ -10,13 +10,14 @@ from app.core.config import Settings
 
 
 def test_handoff_settings_have_defaults():
-    """4 个 handoff 字段必须有默认值(默认值见 spec §3.4)。"""
+    """5 个 handoff 字段必须有默认值(默认值见 spec §3.4)。"""
     # 清掉可能影响测试的 env 变量
     for key in (
         "HANDOFF_TIMEOUT_CONTENT_WRITER",
         "HANDOFF_TIMEOUT_MONITOR",
         "HANDOFF_MAX_RETRIES",
         "HANDOFF_IDEMPOTENCY_WINDOW_HOURS",
+        "HANDOFF_LOG_RETENTION_DAYS",
     ):
         os.environ.pop(key, None)
     s = Settings(_env_file=None)  # 避免读 .env
@@ -24,13 +25,17 @@ def test_handoff_settings_have_defaults():
     assert s.handoff_timeout_monitor == 60
     assert s.handoff_max_retries == 1
     assert s.handoff_idempotency_window_hours == 24
+    assert s.handoff_log_retention_days == 90
 
 
 def test_handoff_settings_override_from_env(monkeypatch):
     """环境变量可覆盖默认值(env 注入测试)。"""
     monkeypatch.setenv("HANDOFF_TIMEOUT_CONTENT_WRITER", "600")
     monkeypatch.setenv("HANDOFF_IDEMPOTENCY_WINDOW_HOURS", "48")
+    monkeypatch.setenv("HANDOFF_LOG_RETENTION_DAYS", "30")
     s = Settings(_env_file=None)
     assert s.handoff_timeout_content_writer == 600
     assert s.handoff_idempotency_window_hours == 48
+    assert s.handoff_log_retention_days == 30
+
 

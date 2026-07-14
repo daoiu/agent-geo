@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     handoff_timeout_monitor: int = 60            # 秒
     handoff_max_retries: int = 1                 # specialist 失败重试次数(不算超时)
     handoff_idempotency_window_hours: int = 24   # 幂等键有效期
+    handoff_log_retention_days: int = 90         # handoff_log 表保留天数(自动清理待 P2 路线)
 
     # v0.6+ P1#25 — pending 超时自动取消（Task 26）
     pending_timeout_minutes: int = 5  # pending_confirmation 超 5 分钟自动取消
