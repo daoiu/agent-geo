@@ -27,8 +27,9 @@ class EvalReport:
     details: list[dict] = field(default_factory=list)
     note: str = ""
 
-    def to_dict(self) -> dict:
-        return {
+    def to_dict(self, include_details: bool = False) -> dict:
+        """序列化。include_details=True 时包含每条详情(用于人评抽样)。"""
+        d = {
             "total": self.total,
             "pass": self.pass_,
             "pass_rate": round(self.pass_rate, 3),
@@ -37,6 +38,9 @@ class EvalReport:
             "by_category": self.by_category,
             "note": self.note,
         }
+        if include_details:
+            d["details"] = self.details
+        return d
 
 
 async def _mock_agent_response(case: EvalCase) -> str:
