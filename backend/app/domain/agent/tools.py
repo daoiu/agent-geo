@@ -16,6 +16,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
+from langchain_core.tools import tool
+
 
 class ToolName(str, Enum):
     """五个工具的稳定名称。"""
@@ -475,7 +477,6 @@ def list_tool_names() -> list[str]:
 - react_graph.ToolNode 消费 LANGCHAIN_TOOLS
 - 二者通过「完全相同的 name + 同 args」对齐(Sprint 4 双跑对比靠这个)
 """
-from langchain_core.tools import tool
 
 
 def _wrap(name: str, description: str, args_schema: dict) -> callable:
@@ -498,3 +499,5 @@ LANGCHAIN_TOOLS: list = [
     _wrap(t["function"]["name"], t["function"]["description"], t["function"]["parameters"])
     for t in TOOLS
 ]
+
+
