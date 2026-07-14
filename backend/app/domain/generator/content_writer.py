@@ -4,24 +4,16 @@ from __future__ import annotations
 import asyncio
 import re
 
-import httpx
-from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
+from openai import AsyncOpenAI
 
 from app.core.config import Settings
+from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
 from app.domain.generator.prompt_builder import build as build_prompt
 from app.domain.llm_client import _normalize_base_url
 
 
-# Exceptions that should be silently absorbed as "LLM failure" (caller
-# marks article as errored). Programming errors propagate so we don't
-# hide real bugs.
-_LLM_TRANSIENT_EXCEPTIONS: tuple[type[Exception], ...] = (
-    asyncio.TimeoutError,
-    APITimeoutError,
-    RateLimitError,
-    APIError,
-    httpx.HTTPError,
-)
+# _LLM_TRANSIENT_EXCEPTIONS 已在阶段 1 P0#6 上移到 app.domain.exceptions 共享,
+# 本文件直接导入使用。Programming errors 仍向上抛,不隐藏真 bug。
 
 
 class ContentWriter:

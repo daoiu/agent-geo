@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.domain.agent.memory_vector import MemoryVectorIndex
+from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
 from app.domain.llm_client import LLMClient
 from app.repositories.memory_repo import MemoryRepository
 from app.services.embedding import EmbeddingService
@@ -194,7 +195,7 @@ class MemoryService:
                 if row:
                     out.append(row)
             return out
-        except Exception as e:  # noqa: BLE001
+        except _LLM_TRANSIENT_EXCEPTIONS as e:
             logger.warning("select_relevant_vector_failed",
                            scope=scope, error=str(e))
             return rows[:k]
@@ -279,7 +280,7 @@ class MemoryService:
             if not match:
                 return 0
             items = json.loads(match.group())
-        except Exception as e:  # noqa: BLE001
+        except _LLM_TRANSIENT_EXCEPTIONS as e:
             logger.warning("extract_failed", error=str(e))
             return 0
 
@@ -301,7 +302,7 @@ class MemoryService:
                 if nearest and nearest[0]["distance"] is not None and \
                         nearest[0]["distance"] < get_settings().memory_dedup_max_distance:
                     continue
-            except Exception as e:  # noqa: BLE001
+            except _LLM_TRANSIENT_EXCEPTIONS as e:
                 logger.warning("extract_dedup_vector_failed",
                                scope=scope, name=name, error=str(e))
             await self.write_memory(
@@ -359,7 +360,7 @@ class MemoryService:
             if not match:
                 return len(rows)
             items = json.loads(match.group())
-        except Exception as e:  # noqa: BLE001
+        except _LLM_TRANSIENT_EXCEPTIONS as e:
             logger.warning("consolidate_failed", error=str(e))
             return len(rows)
 

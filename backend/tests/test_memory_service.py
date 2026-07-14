@@ -5,7 +5,7 @@ Phase 2:EmbeddingService + MemoryVectorIndex 由 autouse fixture 默认 mock,
 杜绝真加载 bge(沙箱无外网会卡死)/写真 ChromaDB。个别用例用自己的 with patch 覆盖。
 """
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -172,7 +172,8 @@ async def test_select_relevant_empty_scope_returns_empty(db_session):
 
 @pytest.mark.asyncio
 async def test_select_relevant_vector_fail_recency_fallback(db_session):
-    """向量失败 → 降级 recency top-k。"""
+    """向量/Embedding 失败(transient)→ 降级 recency top-k。"""
+    from openai import RateLimitError
     from app.domain.agent.memory import MemoryService
 
     svc = MemoryService(db_session)
@@ -184,7 +185,11 @@ async def test_select_relevant_vector_fail_recency_fallback(db_session):
     with patch("app.domain.agent.memory.EmbeddingService") as MockEmb, \
          patch("app.domain.agent.memory.MemoryVectorIndex") as MockVidx:
         MockVidx.return_value.ids_in_scope.return_value = set()
-        MockEmb.embed.side_effect = Exception("bge 加载失败")
+        # P0#6: select_relevant 只捕获 _LLM_TRANSIENT_EXCEPTIONS(不再宽泛吞 Exception),
+        # 此处用 RateLimitError(典型的 transient 网络/限流异常)触发降级路径。
+        MockEmb.embed.side_effect = RateLimitError(
+            "bge 加载失败", response=MagicMock(), body=None
+        )
         result = await svc.select_relevant("d", msgs, k=5)
     assert len(result) == 1  # recency 降级仍返回
 

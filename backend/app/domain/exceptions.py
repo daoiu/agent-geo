@@ -1,5 +1,25 @@
 """Custom exceptions for the domain layer."""
 
+import asyncio
+
+import httpx
+from openai import APIError, APITimeoutError, RateLimitError
+
+
+# Exceptions that should be silently absorbed as "LLM failure" (caller
+# marks the work item as errored / falls back). Programming errors
+# propagate so we don't hide real bugs.
+#
+# 阶段 1 P0#6: 从 generator/content_writer.py 上移到 exceptions.py,
+# 供 content_writer.py + agent/memory.py 共享(memory 的 LLM 调用路径)。
+_LLM_TRANSIENT_EXCEPTIONS: tuple[type[Exception], ...] = (
+    asyncio.TimeoutError,
+    APITimeoutError,
+    RateLimitError,
+    APIError,
+    httpx.HTTPError,
+)
+
 
 class DomainError(Exception):
     """Base for all domain-level errors."""
