@@ -12,10 +12,12 @@ from app.core.config import get_settings
 
 async def _run_react_loop_turn(session_id: str, message: str) -> AsyncIterator[bytes]:
     """现有 react_loop 路径(沿用,1 个里程碑后删除)。"""
-    from app.domain.agent.react_loop import run_agent_turn as react_impl  # type: ignore
+    import json as _json
 
-    async for sse in react_impl(session_id=session_id, message=message):  # type: ignore
-        yield sse
+    from app.domain.agent.react_loop import run_agent_turn as react_impl
+
+    async for evt in react_impl(session_id=session_id, user_message=message):
+        yield (_json.dumps(evt, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 async def _run_langgraph_turn(session_id: str, message: str) -> AsyncIterator[bytes]:
