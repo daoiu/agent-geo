@@ -311,6 +311,17 @@ class LLMClient:
             temperature=0.7,
         )
         self.last_call_duration_ms = (time.perf_counter() - _call_start) * 1000
+
+        # v0.6+ P1#24（Task 25）：慢查询告警(LLM > threshold_ms)
+        threshold_ms = self.settings.llm_slow_query_threshold_ms
+        if self.last_call_duration_ms > threshold_ms:
+            logger.warning(
+                "llm_slow_query_alert",
+                provider=primary_name,
+                duration_ms=self.last_call_duration_ms,
+                threshold_ms=threshold_ms,
+                model=cfg.model,
+            )
         message = response.choices[0].message
         tool_calls: list[dict] | None = None
         if message.tool_calls:
