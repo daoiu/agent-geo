@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 import structlog
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import get_settings
 from app.core.db import get_session_factory
@@ -39,6 +41,24 @@ logger = structlog.get_logger()
 
 # Fire-and-forget 持有的后台任务集合,避免被 GC
 _PENDING_EXTRACTS: set[asyncio.Task] = set()
+
+
+@asynccontextmanager
+async def _open_agent_repo(
+    factory: async_sessionmaker | None = None,
+):
+    """打开一个 session 并 yield AgentRepository。
+
+    v0.6+ P1#8（Task 9）：替代 ``async with factory() as session: repo = AgentRepository(session)``
+    的 5 处重复样板代码。每个 ``async with _open_agent_repo() as repo`` 仍是一次独立事务，
+    但消除了 ``repo = AgentRepository(session)`` 这一层嵌套。
+
+    factory 为 None 时回退到 ``get_session_factory()``（默认行为）。
+    测试可注入自定义 factory（DI 入口）。
+    """
+    f = factory if factory is not None else get_session_factory()
+    async with f() as session:
+        yield AgentRepository(session)
 
 
 # ===========================================================================
@@ -280,17 +300,23 @@ async def _drive_react_loop(
     session_id: str,
     history: list[dict],
     device_id: str | None = None,
+    *,
+    factory: async_sessionmaker | None = None,
 ) -> AsyncIterator[dict]:
     """共享 ReAct 循环体。两入口做完各自起点差异后委托到此。
 
     产出的 SSE 事件流与收敛前逐事件等价。
+
+    v0.6+ P1#8（Task 9）：接受可选 factory 参数（DI 入口）。
+    不传则使用 ``get_session_factory()`` 默认 factory。测试可注入自定义 factory。
     """
     settings = get_settings()
     llm = LLMClient(settings)
-    factory = get_session_factory()
+    f = factory if factory is not None else get_session_factory()
     scope = scope_key(device_id, session_id)
 
-    async with factory() as session:
+    # 记忆预热（仍需独立 session，因为用的是 MemoryService 而非 AgentRepository）
+    async with f() as session:
         memory_service = MemoryService(session)
         memory_index_segment = await memory_service.build_memory_segment(scope)
         memory_block = await memory_service.load_relevant_memories(scope, history)
@@ -325,8 +351,7 @@ async def _drive_react_loop(
                 }
                 for tc in tool_calls
             ]
-        async with factory() as session:
-            repo = AgentRepository(session)
+        async with _open_agent_repo(factory=f) as repo:
             await repo.create_message(
                 session_id=session_id, role="assistant",
                 content=content, tool_calls=tc_for_db,
@@ -367,8 +392,7 @@ async def _drive_react_loop(
                         return
 
                     err_payload = {"error": f"{type(exc).__name__}: {exc}"}
-                    async with factory() as session:
-                        repo = AgentRepository(session)
+                    async with _open_agent_repo(factory=f) as repo:
                         await repo.create_message(
                             session_id=session_id, role="tool",
                             content=json.dumps(err_payload, ensure_ascii=False),
@@ -381,8 +405,7 @@ async def _drive_react_loop(
                     }
                     continue
 
-                async with factory() as session:
-                    repo = AgentRepository(session)
+                async with _open_agent_repo(factory=f) as repo:
                     await repo.create_message(
                         session_id=session_id, role="tool",
                         content=json.dumps(result, ensure_ascii=False),
@@ -394,8 +417,7 @@ async def _drive_react_loop(
                     "result": result,
                 }
 
-            async with factory() as session:
-                repo = AgentRepository(session)
+            async with _open_agent_repo(factory=f) as repo:
                 history_rows = await repo.list_messages(session_id)
             history = [_orm_to_dict(m) for m in history_rows]
         else:
