@@ -9,7 +9,7 @@ const REVIEW_STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
   approved: 'bg-green-100 text-green-800',
   rejected: 'bg-red-100 text-red-800',
-  revise_requested: 'bg-orange-100 text-orange-800',
+  revise_requested: 'bg-warning/20 text-warning',
 };
 
 const REVIEW_STATUS_LABELS: Record<string, string> = {

@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes, Link, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, Link, useLocation, useParams } from 'react-router-dom';
 import { useMemo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -26,6 +26,7 @@ import AgentWorkspace from '@/pages/AgentWorkspace';
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
 import { navItems } from '@/components/layout/navConfig.tsx';
+import { ROUTES, ROUTE_REDIRECTS } from '@/routes';
 import { AgentSessionListPanel } from '@/components/layout/AgentSessionListPanel';
 import { CommandPalette, useCommandPalette } from '@/components/layout/CommandPalette';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -40,6 +41,21 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * RedirectWithParams — mounts at a legacy path that contains `:param`
+ * placeholders (e.g. `/reports/:reportId`) and forwards to the v0.7
+ * canonical URL with the captured params substituted in.  Static-only
+ * redirects can use `<Navigate to={...} replace />` directly.
+ */
+function RedirectWithParams({ to }: { to: string }) {
+  const params = useParams();
+  let resolved = to;
+  for (const [k, v] of Object.entries(params)) {
+    resolved = resolved.replace(`:${k}`, String(v));
+  }
+  return <Navigate to={resolved} replace />;
+}
 
 /**
  * navItems — moved to `navConfig.ts` so CommandPalette can share it
@@ -144,36 +160,57 @@ function LayoutShellRouter() {
         onToggleDark={toggleTheme}
       >
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/new" element={<NewDiagnosis />} />
-        <Route path="/diagnosis/:taskId/status" element={<DiagnosisStatus />} />
-        <Route path="/reports" element={<ReportList />} />
-        <Route path="/reports/:reportId" element={<ReportView />} />
-        <Route path="/knowledge" element={<KnowledgeList />} />
-        <Route path="/knowledge/:kbId" element={<KnowledgeDetail />} />
-        <Route path="/tasks" element={<TaskList />} />
-        <Route path="/tasks/new" element={<NewTask />} />
-        <Route path="/tasks/:taskId" element={<TaskDetail />} />
-        <Route path="/reviews" element={<ReviewQueue />} />
-        <Route path="/reviews/:articleId" element={<ReviewArticle />} />
-        <Route path="/publishers" element={<PublisherConfigPage />} />
-        <Route path="/publishes" element={<PublishList />} />
-        <Route path="/monitors" element={<MonitorList />} />
-        <Route path="/monitors/new" element={<NewMonitor />} />
-        <Route path="/monitors/:monitorId" element={<MonitorDetail />} />
-        <Route path="/notifications" element={<NotificationSettings />} />
-        <Route path="/agent" element={<AgentWorkspace />} />
-        <Route path="/agent/:sessionId" element={<AgentWorkspace />} />
-        {/* Real settings page — see Settings.tsx */}
-        <Route path="/settings" element={<Settings />} />
+        {/* v0.7 IA — 6 drawer category roots mount the real pages. */}
+        <Route path={ROUTES.diagnose} element={<Dashboard />} />
+        <Route path={ROUTES.diagnoseNew} element={<NewDiagnosis />} />
+        <Route path={ROUTES.diagnoseRun} element={<DiagnosisStatus />} />
+        <Route path={ROUTES.diagnoseReports} element={<ReportList />} />
+        <Route path={ROUTES.diagnoseReport} element={<ReportView />} />
+        <Route path={ROUTES.knowledge} element={<KnowledgeList />} />
+        <Route path={ROUTES.knowledgeDetail} element={<KnowledgeDetail />} />
+        <Route path={ROUTES.generateTasks} element={<TaskList />} />
+        <Route path={ROUTES.generateTaskNew} element={<NewTask />} />
+        <Route path={ROUTES.generateTask} element={<TaskDetail />} />
+        <Route path={ROUTES.generateReviews} element={<ReviewQueue />} />
+        <Route path={ROUTES.generateReview} element={<ReviewArticle />} />
+        <Route path={ROUTES.publishConfigs} element={<PublisherConfigPage />} />
+        <Route path={ROUTES.publishJobs} element={<PublishList />} />
+        <Route path={ROUTES.monitorTasks} element={<MonitorList />} />
+        <Route path={ROUTES.monitorTaskNew} element={<NewMonitor />} />
+        <Route path={ROUTES.monitorTask} element={<MonitorDetail />} />
+        <Route path={ROUTES.settingsNotifications} element={<NotificationSettings />} />
+        <Route path={ROUTES.settingsGeneral} element={<Settings />} />
+        {/* agent + cost remain mounted at their canonical paths only — they
+            don't have legacy redirects in spec §5.3, so no alias needed. */}
+        <Route path={ROUTES.agent} element={<AgentWorkspace />} />
+        <Route path={ROUTES.agentSession} element={<AgentWorkspace />} />
+        <Route path={ROUTES.cost} element={
+          // Cost page (Task 12) — until then surface a "coming in v0.7" tile.
+          <div className="rounded-lg border border-dashed border-border bg-bg p-12 text-center">
+            <h2 className="mb-2 text-lg font-semibold">月度成本</h2>
+            <p className="text-sm text-fg-muted">
+              Task 12 (recharts dashboard) will wire recharts data here.
+            </p>
+          </div>
+        } />
+
+        {/* v0.6 legacy URL compatibility — 19 redirects to the v0.7 IA */}
+        {Object.entries(ROUTE_REDIRECTS).map(([from, to]) => (
+          <Route
+            key={from}
+            path={from}
+            element={<RedirectWithParams to={to} />}
+          />
+        ))}
+
         {/* Catch-all */}
         <Route
           path="*"
           element={
             <div className="rounded-lg border border-dashed border-border bg-bg p-12 text-center">
               <h2 className="mb-2 text-lg font-semibold">页面不存在</h2>
-              <Link to="/" className="text-primary hover:underline">
-                返回首页
+              <Link to={ROUTES.diagnose} className="text-primary hover:underline">
+                返回诊断首页
               </Link>
             </div>
           }
