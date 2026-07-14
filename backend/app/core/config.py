@@ -118,10 +118,19 @@ class Settings(BaseSettings):
     model_tier_standard: str = "deepseek"
     model_tier_premium: str = "deepseek"
 
+    # v0.7+ P2#51 — Fallback 链（Task 37）
+    # 主 provider 失败切下一个。逗号分隔 provider 名。
+    fallback_chain: str = "deepseek,kimi"
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
         return [p.strip() for p in self.llm_providers.split(",") if p.strip()]
+
+    @property
+    def parsed_fallback_chain(self) -> list[str]:
+        """Parse fallback_chain into list of provider names."""
+        return [p.strip() for p in self.fallback_chain.split(",") if p.strip()]
 
     @model_validator(mode="after")
     def _require_some_api_key(self) -> "Settings":
