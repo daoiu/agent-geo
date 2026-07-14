@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
+from decimal import Decimal
 from typing import AsyncIterator
 
 import structlog
@@ -26,6 +28,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import get_settings
 from app.core.db import get_session_factory
+from app.core.providers import compute_cost, resolve_providers
 from app.domain.agent.memory import MemoryService, scope_key
 from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.domain.agent.tool_executor import ToolExecutor
@@ -325,8 +328,11 @@ def _accumulate(agg: dict, usage: dict | None) -> None:
 
 
 def _emit_metrics(
-    agg: dict, session_id: str, device_id: str | None, outcome: str
+    agg: dict, session_id: str, device_id: str | None, outcome: str,
+    turn_duration_ms: float | None = None,
+    cost_usd: "Decimal | None" = None,
 ) -> None:
+    """记录 turn 级别指标(v0.6+ P1#22 Task 24 增加 turn_duration_ms + cost_usd)。"""
     logger.info(
         "agent_turn_metrics",
         session_id=session_id, device_id=device_id, outcome=outcome,
@@ -335,6 +341,8 @@ def _emit_metrics(
         prompt_tokens=agg["prompt_tokens"] if agg["usage_seen"] else None,
         completion_tokens=agg["completion_tokens"] if agg["usage_seen"] else None,
         total_tokens=agg["total_tokens"] if agg["usage_seen"] else None,
+        turn_duration_ms=turn_duration_ms,
+        cost_usd=str(cost_usd) if cost_usd is not None else None,
     )
 
 
@@ -361,6 +369,21 @@ async def _drive_react_loop(
     llm = LLMClient(settings)
     f = factory if factory is not None else get_session_factory()
     scope = scope_key(device_id, session_id)
+
+    # v0.6+ P1#22（Task 24）：turn 级别计时 + cost 计算
+    turn_start = time.perf_counter()
+    providers = resolve_providers(settings)
+    primary_provider = providers[0] if providers else None
+
+    def _compute_turn_cost() -> Decimal | None:
+        """根据 primary provider + 累计 usage 计算 USD cost。"""
+        if not primary_provider or not agg["usage_seen"]:
+            return None
+        return compute_cost(
+            primary_provider,
+            prompt_tokens=agg["prompt_tokens"],
+            completion_tokens=agg["completion_tokens"],
+        )
 
     # 记忆预热（仍需独立 session，因为用的是 MemoryService 而非 AgentRepository）
     async with f() as session:
@@ -467,7 +490,11 @@ async def _drive_react_loop(
                     from app.domain.exceptions import HumanConfirmationRequired
 
                     if isinstance(exc, HumanConfirmationRequired):
-                        _emit_metrics(agg, session_id, device_id, "human_confirmation")
+                        _emit_metrics(
+                            agg, session_id, device_id, "human_confirmation",
+                            turn_duration_ms=(time.perf_counter() - turn_start) * 1000,
+                            cost_usd=_compute_turn_cost(),
+                        )
                         yield {
                             "event": "human_confirmation_required",
                             "message_id": exc.message_id,
@@ -499,11 +526,19 @@ async def _drive_react_loop(
             )
             _PENDING_EXTRACTS.add(task)
             task.add_done_callback(_PENDING_EXTRACTS.discard)
-            _emit_metrics(agg, session_id, device_id, "turn_complete")
+            _emit_metrics(
+                agg, session_id, device_id, "turn_complete",
+                turn_duration_ms=(time.perf_counter() - turn_start) * 1000,
+                cost_usd=_compute_turn_cost(),
+            )
             yield {"event": "turn_complete"}
             return
 
-    _emit_metrics(agg, session_id, device_id, "max_iterations_reached")
+    _emit_metrics(
+        agg, session_id, device_id, "max_iterations_reached",
+        turn_duration_ms=(time.perf_counter() - turn_start) * 1000,
+        cost_usd=_compute_turn_cost(),
+    )
     yield {
         "event": "max_iterations_reached",
         "message": f"agent 达到最大推理步数 ({settings.max_react_iterations})",

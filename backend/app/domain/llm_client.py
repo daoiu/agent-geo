@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -145,6 +146,8 @@ class LLMClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._providers = _build_provider_map(settings)
+        # v0.6+ P1#22（Task 24）：记录最近一次 LLM 调用的耗时（毫秒）
+        self.last_call_duration_ms: float = 0.0
 
     def has_provider(self, name: str) -> bool:
         return name in self._providers
@@ -298,6 +301,8 @@ class LLMClient:
                 retryable=False,
             )
         client = self._make_async_client(cfg)
+        # v0.6+ P1#22（Task 24）：time.perf_counter 包裹 LLM 调用
+        _call_start = time.perf_counter()
         response = await client.chat.completions.create(
             model=cfg.model,
             messages=messages,
@@ -305,6 +310,7 @@ class LLMClient:
             tool_choice="auto",
             temperature=0.7,
         )
+        self.last_call_duration_ms = (time.perf_counter() - _call_start) * 1000
         message = response.choices[0].message
         tool_calls: list[dict] | None = None
         if message.tool_calls:
