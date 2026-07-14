@@ -128,4 +128,37 @@ MANUAL_VERIFICATION_V0.1~V0.5 + 设计 / 实施 / 验证三套文档完整,可�
 3. **诚实备注不强写**:`诚实备注:个人项目无线上流量` 留在面试应对,简历里只写"9 个迭代阶段、5 工具 / 4 模型 / strict provider 0 失败"等可验证数据
 4. **PDF 标准自检**:扫一眼每条 bullet,确认是「**针对 X 问题,基于 X 机制,设计 X 方案,实现 X 效果**」句式,而不是「使用 X,实现 Y」的八股写法
 
+---
+
+## ⚠️ 诚实标注(Multi-Agent 改造范围,投递前必看)
+
+v0.6+ Multi-Agent 改造(v5 中描述)实际交付范围:
+
+| 维度 | 已交付 | 待补 |
+|---|---|---|
+| Handoff 协议数据契约 | ✅ HandoffRequest/Result/Error | — |
+| HandoffLogORM + 仓库(纪律 1+5) | ✅ check_idempotency / insert / aggregate | — |
+| Settings 配置 5 字段 | ✅ | — |
+| ContentWriterSpecialist 类 | ✅ 协议层(纪律 1-5 分支) | ⚠️ `_execute_with_timeout` 仍是 `NotImplementedError` 占位 |
+| MonitorSpecialist 类 | ✅ 协议层(纪律 1-5 分支) | ⚠️ `_execute_with_timeout` 仍是 `NotImplementedError` 占位 |
+| ToolExecutor 接入 | ✅ 走 handoff + 失败降级旧路径 | — |
+| Scheduler 接入 | ✅ callback 走 specialist + 失败降级 | — |
+| LLM-as-judge 评测 | ✅ 30 条样例 + mock judge | ⚠️ 真实 LLM judge 待实施 |
+| 11 维度评分 | ✅ 50.5 持平 A+ | — |
+
+**这意味着什么**:
+- ✅ **协议层 / 架构层完整** — 数据契约、ORM、Repo、纪律分支、tool_executor / scheduler 委派都到位
+- ⚠️ **业务功能 = 改造前** — 因为 specialist 内部真实生成路径未实现,实际行为走纪律 4 降级到旧路径
+- ✅ **业务失败安全** — 降级路径保证功能不退化(纪律 4 设计目的)
+- ⚠️ **简历"端到端跑通 specialist" 需诚实表述** — 应说"**协议层完整,业务侧端到端走的是降级路径**"
+
+**投递时如何表述**(推荐措辞):
+
+> Multi-Agent 架构改造:主 Agent (ReAct) + ContentWriter / Monitor 双 specialist,
+> Handoff 协议 5 条工程纪律(幂等键 / 超时 / 状态隔离 / 失败回退 / 成本归因)。
+> 当前交付:协议层完整 + 失败降级到旧路径保功能不退化;specialist 内部真实
+> 生成路径在 P2 路线中。
+
+**面试官追问"为什么 specialist 真实路径没接?"诚实答**:任务边界清晰 + 引入完整 ContentWriterAgent.stream_article 调用需要更多设计(流式 chunk 入参契约 / partial 失败恢复 / token 计费计费点),Spec 设计阶段先做协议层 + 降级路径保功能,真实接入是 P2 路线。
+
 需要更精简的英文版 / 某具体公司 JD 对齐版时,直接告诉我 JD 即可。
