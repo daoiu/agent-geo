@@ -397,3 +397,69 @@ def requires_confirmation(tool_name: str) -> bool:
         ValueError: 未知的工具名。
     """
     return get_tool_permission(tool_name)["requires_confirmation"]
+
+
+# ---------------------------------------------------------------------------
+# v0.7+ P2#35（Task 43）：统一工具注册表
+# ---------------------------------------------------------------------------
+# 把 _TOOL_SCHEMAS / _VALIDATORS / _TOOL_PERMISSIONS 三个分散字典收拢到
+# 单一 TOOL_REGISTRY,每个 entry 含 schema/validator/permission/executor 四个
+# 核心字段。新增工具只需登记一次,无需修改 dispatcher。
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass
+from typing import Callable
+
+
+@dataclass
+class ToolEntry:
+    """统一工具注册表条目。"""
+
+    __test__ = False  # 防止 pytest 当 test class 收集
+
+    name: str
+    schema: dict  # OpenAI function calling 格式
+    validator: type  # Pydantic model class
+    permission: dict  # 权限/副作用声明
+    executor: Callable | None = None  # 可选 executor(供未来 registry 调用)
+
+
+def _build_registry() -> dict[str, ToolEntry]:
+    """从三个分散字典构建 TOOL_REGISTRY。"""
+    registry: dict[str, ToolEntry] = {}
+    for tool_name in _TOOL_SCHEMAS:
+        registry[tool_name] = ToolEntry(
+            name=tool_name,
+            schema=_TOOL_SCHEMAS[tool_name],
+            validator=_VALIDATORS[tool_name],
+            permission=_TOOL_PERMISSIONS.get(
+                tool_name,
+                {
+                    "requires_confirmation": False,
+                    "category": "unknown",
+                    "side_effect": False,
+                    "is_idempotent": False,
+                    "estimated_cost_tier": "low",
+                },
+            ),
+        )
+    return registry
+
+
+TOOL_REGISTRY: dict[str, ToolEntry] = _build_registry()
+
+
+def get_tool_entry(tool_name: str) -> ToolEntry:
+    """从注册表获取 ToolEntry(单点查询入口)。
+
+    Raises:
+        ValueError: 未知的工具名。
+    """
+    if tool_name not in TOOL_REGISTRY:
+        raise ValueError(f"Unknown tool: {tool_name}")
+    return TOOL_REGISTRY[tool_name]
+
+
+def list_tool_names() -> list[str]:
+    """列出所有已注册工具名。"""
+    return list(TOOL_REGISTRY.keys())
