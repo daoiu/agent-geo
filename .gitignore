@@ -47,6 +47,3 @@ backend/data/
 
 
 .playwright-mcp
-
-# Docs (SDD 过程文件,不入版本控制 — 留本地工作用)
-docs/
