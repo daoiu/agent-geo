@@ -463,3 +463,38 @@ def get_tool_entry(tool_name: str) -> ToolEntry:
 def list_tool_names() -> list[str]:
     """列出所有已注册工具名。"""
     return list(TOOL_REGISTRY.keys())
+
+
+# ---------------------------------------------------------------------------
+# v0.8+ LangGraph 集成：LANGCHAIN_TOOLS
+# ---------------------------------------------------------------------------
+"""tools.py v0.8 — 在保留 TOOLS schema 兼容同时，产出 LANGCHAIN_TOOLS 给 react_graph ToolNode。
+
+原则(spec §1.4 / §4.1):
+- tool_executor.py 不变(继续消费 TOOLS schema)
+- react_graph.ToolNode 消费 LANGCHAIN_TOOLS
+- 二者通过「完全相同的 name + 同 args」对齐(Sprint 4 双跑对比靠这个)
+"""
+from langchain_core.tools import tool
+
+
+def _wrap(name: str, description: str, args_schema: dict) -> callable:
+    """把 TOOLS schema 的 (name, description, parameters) 包成 @tool 函数。"""
+
+    def _impl(**kwargs):
+        # 实际 dispatch 在 ToolExecutor 内做，此处只把 kwargs 透传
+        # 注:func 不会在测试里直接调，ToolNode 调 LangGraph 内部 dispatch
+        raise NotImplementedError("handled by ToolExecutor")
+
+    _impl.__name__ = name
+    _impl.__doc__ = description
+    _impl.__annotations__ = {
+        k: v for k, v in (args_schema.get("properties", {}) or {}).items()
+    }
+    return tool(name, args_schema=args_schema, description=description)(_impl)
+
+
+LANGCHAIN_TOOLS: list = [
+    _wrap(t["function"]["name"], t["function"]["description"], t["function"]["parameters"])
+    for t in TOOLS
+]
