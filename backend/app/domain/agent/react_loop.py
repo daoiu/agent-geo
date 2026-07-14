@@ -486,21 +486,38 @@ async def _drive_react_loop(
                     }
                     continue
                 except Exception as exc:
-                    # HumanConfirmationRequired 仍优先识别(yield 暂停事件,return 退出)
-                    from app.domain.exceptions import HumanConfirmationRequired
+                    # 任意 HITL 类型(decision/input/progress_confirm)都优先识别
+                    # yield 对应 kind 的暂停事件后 return 退出。
+                    from app.domain.exceptions import HumanConfirmationBase
 
-                    if isinstance(exc, HumanConfirmationRequired):
+                    if isinstance(exc, HumanConfirmationBase):
                         _emit_metrics(
-                            agg, session_id, device_id, "human_confirmation",
+                            agg, session_id, device_id, f"hitl_{exc.kind}",
                             turn_duration_ms=(time.perf_counter() - turn_start) * 1000,
                             cost_usd=_compute_turn_cost(),
                         )
-                        yield {
-                            "event": "human_confirmation_required",
+                        # 根据 kind 生成不同 SSE event 名称
+                        event_name_map = {
+                            "decision": "human_confirmation_required",
+                            "input": "input_required",
+                            "progress_confirm": "progress_confirm",
+                        }
+                        event_name = event_name_map.get(exc.kind, "human_confirmation_required")
+                        payload = {
+                            "event": event_name,
+                            "kind": exc.kind,
                             "message_id": exc.message_id,
                             "tool_name": exc.tool_name,
                             "arguments": exc.arguments,
                         }
+                        # 按 kind 附加额外字段
+                        if exc.kind == "input":
+                            payload["input_schema"] = exc.input_schema
+                            payload["prompt"] = exc.prompt
+                        elif exc.kind == "progress_confirm":
+                            payload["progress_pct"] = exc.progress_pct
+                            payload["eta_seconds"] = exc.eta_seconds
+                        yield payload
                         return
                     # 其他编程错误:向上抛,不被吞
                     raise

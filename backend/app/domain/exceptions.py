@@ -132,19 +132,101 @@ class NotificationError(DomainError):
     """Email / notification delivery failed."""
 
 
-class HumanConfirmationRequired(DomainError):
-    """写类工具需要人工确认后才能继续执行。
+class HumanConfirmationBase(DomainError):
+    """所有 HITL 异常的公共基类(P1#31 / Task 32)。
 
-    由 ToolExecutor 在执行 generate_article 等写类工具时抛出，
-    携带 message_id（已落库的"待确认"消息）、tool_name 和 arguments，
-    ReAct 循环捕获后 yield SSE 事件 human_confirmation_required 并暂停。
+    用于 react_loop 用 isinstance(exc, HumanConfirmationBase) 一次捕获全部三类。
+    `kind` 字段是区分具体类型的判别式:
+    - "decision" — DecisionRequired (原 HumanConfirmationRequired)
+    - "input" — InputRequired (用户补充输入)
+    - "progress_confirm" — ProgressConfirm (长任务中途确认)
+
+    子类必须设置 kind 类属性。
     """
 
-    def __init__(self, message_id: str, tool_name: str, arguments: dict) -> None:
+    kind: str = "unknown"
+
+    def __init__(
+        self,
+        message_id: str,
+        tool_name: str,
+        arguments: dict,
+    ) -> None:
         self.message_id = message_id
         self.tool_name = tool_name
         self.arguments = arguments
         super().__init__(
-            f"Tool {tool_name} requires human confirmation "
+            f"HITL[{self.kind}] tool={tool_name} requires confirmation "
             f"(message_id={message_id})"
         )
+
+
+class HumanConfirmationRequired(HumanConfirmationBase):
+    """决策类 HITL: 写类工具需人工 approve/reject 才能继续。
+
+    向后兼容: 保留原构造函数签名(message_id/tool_name/arguments)。
+    由 ToolExecutor 在执行 generate_article 等写类工具时抛出。
+    ReAct 循环捕获后 yield SSE 事件 human_confirmation_required 并暂停。
+    """
+
+    kind = "decision"
+
+    def __init__(self, message_id: str, tool_name: str, arguments: dict) -> None:
+        super().__init__(message_id, tool_name, arguments)
+
+
+class InputRequired(HumanConfirmationBase):
+    """输入类 HITL: 工具调用需要用户补充额外参数才能继续。
+
+    示例:
+    - search_local 需要城市名(用户只说"天气")
+    - generate_article 需要目标字数(用户没指定)
+    - diagnose_brand 需要行业(用户没提供)
+    """
+
+    kind = "input"
+
+    def __init__(
+        self,
+        message_id: str,
+        tool_name: str,
+        arguments: dict,
+        input_schema: dict,
+        prompt: str,
+    ) -> None:
+        super().__init__(message_id, tool_name, arguments)
+        self.input_schema = input_schema
+        self.prompt = prompt
+
+
+class ProgressConfirm(HumanConfirmationBase):
+    """进度确认类 HITL: 长任务中途向用户报告进度,等待用户确认继续。
+
+    示例:
+    - 批量生成 100 篇文章,每完成 10 篇确认一次
+    - 长时间爬取,每 N 页确认一次
+    """
+
+    kind = "progress_confirm"
+
+    def __init__(
+        self,
+        message_id: str,
+        tool_name: str,
+        arguments: dict,
+        progress_pct: float,
+        eta_seconds: float,
+    ) -> None:
+        super().__init__(message_id, tool_name, arguments)
+        self.progress_pct = progress_pct
+        self.eta_seconds = eta_seconds
+
+
+# 向后兼容别名(避免破坏性 import 改名)
+__all__ = [
+    "DomainError",
+    "HumanConfirmationBase",
+    "HumanConfirmationRequired",
+    "InputRequired",
+    "ProgressConfirm",
+]
