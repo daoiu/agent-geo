@@ -54,6 +54,18 @@ class SSEBridge:
                 "max_iterations_reached",
                 {"message": "agent 达到最大推理步数 (recursion_limit)"},
             )
+        except Exception as exc:
+            # LLM API 错误（_LLM_TRANSIENT_EXCEPTIONS）或 LangGraph 内部异常
+            # 从 graph.astream_events() 传播出来 → 映射为 react_loop 的 llm_error 事件。
+            # RecursionError 已在上方单独处理，不会被此处吞掉（子类先捕获）。
+            yield _emit(
+                "llm_error",
+                {
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                    "retryable": True,  # per react_loop 合同（react_loop.py:423）
+                },
+            )
 
     async def _dispatch(self, event: StreamEvent) -> AsyncIterator[bytes]:
         ev = event.get("event", "")
