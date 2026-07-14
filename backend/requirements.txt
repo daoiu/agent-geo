@@ -38,3 +38,6 @@ tiktoken==0.8.0
 
 # v0.6+ P1#17 — Sentry 异常聚合（Task 18；DSN 缺失时 init_sentry 静默 no-op）
 sentry-sdk[fastapi]==2.19.2
+
+# v0.6+ P1#18 — Langfuse LLM 调用可视化（Task 19；keys 缺失时 init_langfuse 静默 no-op）
+langfuse==2.59.0

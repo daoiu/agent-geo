@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import agent_chat, agent_sessions, articles, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
 from app.core.config import get_settings
 from app.core.db import dispose_db, init_db
+from app.core.langfuse_init import init_langfuse
 from app.core.sentry_init import init_sentry_from_settings
 
 logger = structlog.get_logger()
@@ -24,6 +25,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("sentry_initialized")
     else:
         logger.info("sentry_skipped_dsn_missing")
+
+    # v0.6+ P1#18（Task 19）：Langfuse LLM 调用可视化
+    # LANGFUSE_PUBLIC_KEY/SECRET_KEY 缺失时静默 no-op
+    langfuse_initialized = init_langfuse()
+    if langfuse_initialized:
+        logger.info("langfuse_initialized")
+    else:
+        logger.info("langfuse_skipped_keys_missing")
 
     await init_db()
     # v0.3 — start monitor scheduler and reload active tasks from DB
