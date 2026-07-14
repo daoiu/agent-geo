@@ -32,6 +32,10 @@ from app.domain.agent.tool_executor import ToolExecutor
 from app.domain.agent.tools import TOOLS
 from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
 from app.domain.llm_client import LLMClient
+
+# v0.6+ P1#11（Task 12）：tiktoken 编码器懒加载缓存。None 表示未初始化。
+_TIKTOKEN_ENCODER: object | None = None
+_TIKTOKEN_ENCODING_NAME: str | None = None
 from app.models.orm_v04 import AgentMessageORM
 from app.repositories.agent_repo import AgentRepository
 
@@ -62,6 +66,42 @@ async def _open_agent_repo(
         yield AgentRepository(session)
 
 
+def _get_tiktoken_encoder(encoding_name: str | None = None):
+    """懒加载 tiktoken 编码器（v0.6+ P1#11 / Task 12）。
+
+    缓存于模块级单例。encoding_name 为 None 时使用 Settings.tiktoken_encoding。
+    失败时返回 None（让调用方回退到字符级截断，不阻塞主流程）。
+    """
+    global _TIKTOKEN_ENCODER, _TIKTOKEN_ENCODING_NAME
+    name = encoding_name or get_settings().tiktoken_encoding
+    if _TIKTOKEN_ENCODER is not None and _TIKTOKEN_ENCODING_NAME == name:
+        return _TIKTOKEN_ENCODER
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding(name)
+        _TIKTOKEN_ENCODER = enc
+        _TIKTOKEN_ENCODING_NAME = name
+        return enc
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tiktoken_load_failed", encoding_name=name, error=str(exc))
+        return None
+
+
+def _truncate_by_tokens(content: str, max_tokens: int, encoder) -> str:
+    """按 token 数截断字符串（保留前 max_tokens 个 token）。
+
+    encoder 为 None 时直接返回原 content（回退到字符级）。
+    """
+    if encoder is None:
+        return content
+    tokens = encoder.encode(content)
+    if len(tokens) <= max_tokens:
+        return content
+    # decode 前 N 个 token（可能有尾部空格，需 strip）
+    truncated = encoder.decode(tokens[:max_tokens]).rstrip()
+    return truncated + "…(truncated)"
+
+
 # ===========================================================================
 # 消息构建
 # ===========================================================================
@@ -74,6 +114,7 @@ def build_messages(
     window_messages: int | None = None,
     tool_result_max_chars: int | None = None,
     tool_result_keep_recent: int = 0,
+    token_budget_per_tool_result: int | None = None,
 ) -> list[dict]:
     """把 DB 风格历史转换为 OpenAI chat completion 协议格式。
 
@@ -179,11 +220,16 @@ def build_messages(
             if msg.get("tool_call_id") in kept_ids:
                 content = msg["content"]
                 # Phase 3 ③截断:非最近 keep_recent 个且超长 → 截断标记
-                if (tool_result_max_chars is not None
-                        and idx not in keep_full
-                        and isinstance(content, str)
-                        and len(content) > tool_result_max_chars):
-                    content = content[:tool_result_max_chars] + "…(truncated)"
+                # v0.6+ P1#11（Task 12）：优先 token 级截断,token_budget 为 None 时回退字符级
+                if isinstance(content, str) and idx not in keep_full:
+                    if token_budget_per_tool_result is not None:
+                        encoder = _get_tiktoken_encoder()
+                        content = _truncate_by_tokens(
+                            content, token_budget_per_tool_result, encoder
+                        )
+                    elif (tool_result_max_chars is not None
+                            and len(content) > tool_result_max_chars):
+                        content = content[:tool_result_max_chars] + "…(truncated)"
                 out.append({
                     "role": "tool",
                     "tool_call_id": msg["tool_call_id"],
@@ -330,6 +376,7 @@ async def _drive_react_loop(
             window_messages=settings.context_window_messages,
             tool_result_max_chars=settings.tool_result_max_chars,
             tool_result_keep_recent=settings.tool_result_keep_recent,
+            token_budget_per_tool_result=settings.token_budget_per_tool_result,
         )
         messages = _apply_memory_prepend(messages, memory_block)
 

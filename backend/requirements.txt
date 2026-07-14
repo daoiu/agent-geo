@@ -32,3 +32,6 @@ sentence-transformers==3.2.1
 # v0.7 — Harness (P0#2 阶段 1)
 ruff==0.6.0
 mypy==1.11.0
+
+# v0.6+ P1#11 — Token 级截断（Task 12）
+tiktoken==0.8.0

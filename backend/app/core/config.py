@@ -99,6 +99,12 @@ class Settings(BaseSettings):
     # v0.6+ P1#7 — Agent Loop 迭代上限（Task 8：从 react_loop.py 硬编码常量提到 Settings）
     max_react_iterations: int = 7        # 阶段 1 默认值,与原 MAX_REACT_ITERATIONS 一致
 
+    # v0.6+ P1#11 — Token 级截断（Task 12）
+    # tiktoken 编码名（cl100k_base = gpt-4/deepseek-chat 通用；o200k_base = gpt-4o）。
+    # None 时回退到 tool_result_max_chars 字符级截断。
+    tiktoken_encoding: str = "cl100k_base"
+    token_budget_per_tool_result: int = 800  # 单条 tool 结果的 token 上限
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
