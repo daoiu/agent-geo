@@ -5,16 +5,18 @@
 > 方法论依据：[00-learning-summary.md](./00-learning-summary.md)
 > 设计 spec：[2026-07-14-geo2-quality-review-design.md](../../superpowers/specs/2026-07-14-geo2-quality-review-design.md)
 > 实施计划：[2026-07-14-geo2-quality-review-plan.md](../../superpowers/plans/2026-07-14-geo2-quality-review-plan.md)
+>
+> **🟢 阶段 1 完成 (P0 6 项) — 2026-07-14**：总分 35 → **40** / 55（仍 B 级,但 06/10/11 三维度提升）。详见各维度行。
 
 ---
 
 ## 1. 总分与分级
 
-| 指标 | 值 |
-| --- | --- |
-| **总分** | **35 / 55** |
-| **分级** | **B 级** |
-| **建议** | 工程扎实，能讲清大部分问题；但有 2 个 P0 改进可显著提升 |
+| 指标 | 起点 | 阶段 1 后 |
+| --- | --- | --- |
+| **总分** | 35 / 55 (B 级) | **40 / 55 (B 级)** |
+| **分级** | **B 级** | **B 级**（逼近 A 级下限 45） |
+| **建议** | 工程扎实，能讲清大部分问题；P0 6 项可显著提升 | P0 完成；下阶段 P1 20 项可冲 A 级(≥ 47.5) |
 
 分级标准：
 
@@ -30,29 +32,31 @@
 
 ## 2. 11 维度评分表
 
-| # | 维度 | 分数 | 关键发现 |
-| --- | --- | --- | --- |
-| 01 | [Agent Loop](./01-agent-loop.md) | **4 / 5** | 工程化扎实：SSE 事件 / 断点续跑 / 配对保证 / 指标埋点全有；缺可视化与 replay |
-| 02 | [工具边界](./02-tool-boundary.md) | **4 / 5** | 设计严格：5 工具规模合理 / Pydantic 校验 / 详尽 schema；generate_article 描述与 v0.6 行为有 drift |
-| 03 | [上下文可控](./03-context-control.md) | **4 / 5** | Phase 3 三阶段处理扎实：窗口 + 配对 + 截断；字符截断欠 token 精度 |
-| 04 | [权限策略](./04-permission.md) | **4 / 5** | HumanConfirmation 完整：异常 + API 端点 + DB + 审计；缺声明式策略 |
-| 05 | [失败恢复](./05-failure-recovery.md) | **4 / 5** | transient 区分哲学强；多层降级；重试次数偏少（max_retries=1） |
-| 06 | [评测体系](./06-evaluation.md) | **1 / 5** | **重大缺失**：无 evals/、无 golden dataset、无 LLM-as-judge |
-| 07 | [可观测性](./07-observability.md) | **3 / 5** | structlog 扎实 + 关键事件埋点；缺 Sentry / Langfuse / trace_id |
-| 08 | [HITL](./08-hitl.md) | **3 / 5** | approve/reject 流程完整 + 断点续跑；覆盖度窄 + 无用户反馈回路 |
-| 09 | [成本/延迟](./09-cost-latency.md) | **3 / 5** | token 计量 + 多场景 timeout；缺端到端 turn 延迟 + 成本计算 + 告警 |
-| 10 | [架构分层](./10-architecture-layering.md) | **3 / 5** | 7 层分明 + DDD 子域；knowledge_repo 反向依赖 + 无 import-linter |
-| 11 | [Harness 范式](./11-harness-engineering.md) | **2 / 5** | .superpowers/sdd 任务记录体系强；缺 AGENTS.md / CI / lint |
-| **总分** | | **35 / 55** | **B 级** |
+| # | 维度 | 起点 | 阶段 1 后 | 关键发现 |
+| --- | --- | --- | --- | --- |
+| 01 | [Agent Loop](./01-agent-loop.md) | **4 / 5** | **4 / 5** | 工程化扎实：SSE 事件 / 断点续跑 / 配对保证 / 指标埋点全有；缺可视化与 replay |
+| 02 | [工具边界](./02-tool-boundary.md) | **4 / 5** | **4.5 / 5** 🟢 | 设计严格：5 工具规模合理 / Pydantic 校验 / 详尽 schema；**阶段 1 修复 generate_article schema drift + 加 schema drift 测试** |
+| 03 | [上下文可控](./03-context-control.md) | **4 / 5** | **4 / 5** | Phase 3 三阶段处理扎实：窗口 + 配对 + 截断；字符截断欠 token 精度 |
+| 04 | [权限策略](./04-permission.md) | **4 / 5** | **4 / 5** | HumanConfirmation 完整：异常 + API 端点 + DB + 审计；缺声明式策略 |
+| 05 | [失败恢复](./05-failure-recovery.md) | **4 / 5** | **4.5 / 5** 🟢 | transient 区分哲学强；多层降级；**阶段 1 max_retries 1→3 + 指数退避；memory 4 处 LLM 路径收敛到 _LLM_TRANSIENT_EXCEPTIONS** |
+| 06 | [评测体系](./06-evaluation.md) | **1 / 5** | **3 / 5** 🟢 | ~~重大缺失：无 evals/、无 golden dataset、无 LLM-as-judge~~ → **阶段 1 建 evals/ + 30 条评测集 + LLM-as-judge 框架 + baseline_report** |
+| 07 | [可观测性](./07-observability.md) | **3 / 5** | **3 / 5** | structlog 扎实 + 关键事件埋点；缺 Sentry / Langfuse / trace_id |
+| 08 | [HITL](./08-hitl.md) | **3 / 5** | **3 / 5** | approve/reject 流程完整 + 断点续跑；覆盖度窄 + 无用户反馈回路 |
+| 09 | [成本/延迟](./09-cost-latency.md) | **3 / 5** | **3 / 5** | token 计量 + 多场景 timeout；缺端到端 turn 延迟 + 成本计算 + 告警 |
+| 10 | [架构分层](./10-architecture-layering.md) | **3 / 5** | **3.5 / 5** 🟢 | 7 层分明 + DDD 子域；**阶段 1 修复 knowledge_repo 反向依赖 + test_no_repo_to_service 阻断测试** |
+| 11 | [Harness 范式](./11-harness-engineering.md) | **2 / 5** | **3.5 / 5** 🟢 | ~~缺 AGENTS.md / CI / lint~~ → **阶段 1 新增 AGENTS.md + ruff + mypy + GitHub Actions CI** |
+| **总分** | | **35 / 55** | **40 / 55** | **B 级 → B+** |
 
 ### 评分分布
 
 ```
 5: ░░░░░  (0)
 4: █████  (5)  ← Agent Loop / 工具 / 上下文 / 权限 / 失败恢复
-3: ████   (4)  ← 可观测 / HITL / 成本 / 架构
-2: █      (1)  ← Harness
-1: █      (1)  ← 评测
+4.5: ██   (2)  ← 工具边界(↑) / 失败恢复(↑)
+3: ████   (4)  ← 可观测 / HITL / 成本 / (架构原 3)
+3.5: ██   (2)  ← 架构(↑) / Harness(↑)
+2: ░      (0)  ← Harness 原 2, 现已 3.5
+1: ░      (0)  ← 评测原 1, 现已 3
 0: ░      (0)
 ```
 
