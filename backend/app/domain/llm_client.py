@@ -188,12 +188,16 @@ class LLMClient:
         question: str,
         brand: str,
         industry: str,
-        max_retries: int = 1,
+        max_retries: int = 3,
     ) -> MentionResult:
         """Query one provider with one question. Returns MentionResult.
 
-        On failure, retries up to max_retries times. Returns a
-        MentionResult with `error` set rather than raising.
+        On failure, retries up to max_retries times with exponential backoff
+        (1s, 2s, 4s, ...). Returns a MentionResult with `error` set rather
+        than raising.
+
+        P0#5: 默认 max_retries 从 1 提升到 3 + 加指数退避,
+        依据 docs/review/05-failure-recovery.md §3.2。
         """
         cfg = self._providers.get(provider)
         if cfg is None:
@@ -209,6 +213,14 @@ class LLMClient:
         last_error: str | None = None
 
         for attempt in range(max_retries + 1):
+            # 指数退避: 第 1 次重试睡 1s, 第 2 次 2s, 第 3 次 4s ...
+            if attempt > 0:
+                backoff = 2 ** (attempt - 1)
+                logger.info(
+                    "llm_retry_backoff",
+                    provider=provider, attempt=attempt, backoff_s=backoff,
+                )
+                await asyncio.sleep(backoff)
             try:
                 client = self._make_async_client(cfg)
                 response = await asyncio.wait_for(
