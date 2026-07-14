@@ -34,6 +34,8 @@ class AgentSessionORM(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+    # v0.8 spec §6.1 — LangGraph thread_id 持久化(nullable,首次发起时 CheckpointAdapter 写 uuid4)
+    langgraph_thread_id: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
 
 class AgentMessageORM(Base):
