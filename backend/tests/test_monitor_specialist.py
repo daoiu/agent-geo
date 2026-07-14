@@ -64,13 +64,17 @@ async def test_timeout_returns_timeout_status():
 
 
 async def test_failure_falls_back_to_legacy_service():
-    """纪律 4: monitor 失败时降级到 MonitorService.execute_monitor_run。"""
+    """纪律 4: monitor 失败时降级到 MonitorService.execute_monitor_run(transient 异常被 catch)。"""
+    import httpx
+
     settings = Settings(_env_file=None)
     factory = MagicMock()
     specialist = MonitorSpecialist(settings, factory)
 
     with patch.object(specialist, "_check_idempotency", AsyncMock(return_value=None)):
-        with patch.object(specialist, "_execute_with_timeout", AsyncMock(side_effect=Exception("LLM 失败"))):
+        # httpx.HTTPError 在 _LLM_TRANSIENT_EXCEPTIONS 中,触发 catch (走 failed + 降级)
+        # 注:asyncio.TimeoutError 会被外层 except 捕获为 timeout,不会触发降级
+        with patch.object(specialist, "_execute_with_timeout", AsyncMock(side_effect=httpx.HTTPError("LLM 失败"))):
             with patch.object(specialist, "_log_result", AsyncMock()):
                 with patch("app.domain.monitor.monitor_specialist.execute_monitor_run", new=AsyncMock(return_value=None)) as mock_legacy:
                     result = await specialist.run("task-1")

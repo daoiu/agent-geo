@@ -353,7 +353,6 @@ class ToolExecutor:
         """
         from app.core.db import get_session_factory
         from app.repositories.task_repo import TaskRepository
-        from app.tasks.task_worker import schedule_task
 
         async with get_session_factory()() as session:
             task_repo = TaskRepository(session)
@@ -492,7 +491,6 @@ class ToolExecutor:
         from app.core.db import get_session_factory
         from app.repositories.knowledge_repo import KnowledgeRepository
         from app.repositories.task_repo import TaskRepository
-        from app.tasks.task_worker import schedule_task
 
         async with get_session_factory()() as session:
             kb_repo = KnowledgeRepository(session)

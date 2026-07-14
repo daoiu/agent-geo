@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import Settings
 from app.domain.agent.handoff import HandoffRequest, HandoffResult
+from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
 from app.domain.monitor.monitor_service import execute_monitor_run
 from app.repositories.handoff_log_repo import HandoffLogRepository
 
@@ -86,7 +87,7 @@ class MonitorSpecialist:
                 duration_ms=duration_ms,
                 token_usage={},
             )
-        except Exception as exc:
+        except _LLM_TRANSIENT_EXCEPTIONS as exc:  # noqa: BLE001
             # 纪律 4: 降级到 monitor_service.execute_monitor_run
             try:
                 await execute_monitor_run(monitor_task_id)
@@ -98,7 +99,7 @@ class MonitorSpecialist:
                     duration_ms=int((time.monotonic() - start) * 1000),
                     token_usage={},
                 )
-            except Exception as legacy_exc:
+            except _LLM_TRANSIENT_EXCEPTIONS as legacy_exc:  # noqa: BLE001
                 duration_ms = int((time.monotonic() - start) * 1000)
                 result = HandoffResult(
                     handoff_id=request.handoff_id,

@@ -123,13 +123,17 @@ async def test_state_isolation_uses_independent_session():
 
 
 async def test_failure_logs_failed_status():
-    """失败时 status='failed' + 落日志。"""
+    """失败时 status='failed' + 落日志(transient 异常被 catch,编程错误让上层处理)。"""
+    import httpx
+
     settings = Settings(_env_file=None)
     factory = MagicMock()
     specialist = ContentWriterSpecialist(settings, factory)
 
     with patch.object(specialist, "_check_idempotency", AsyncMock(return_value=None)):
-        with patch.object(specialist, "_execute_with_timeout", AsyncMock(side_effect=Exception("LLM 调用失败"))):
+        # 用 httpx.HTTPError 模拟 transient 异常(_LLM_TRANSIENT_EXCEPTIONS 包含 httpx.HTTPError)
+        # 注:asyncio.TimeoutError 会被外层 except 捕获为 timeout 状态,不是 failed
+        with patch.object(specialist, "_execute_with_timeout", AsyncMock(side_effect=httpx.HTTPError("LLM 调用失败"))):
             with patch.object(specialist, "_log_result", AsyncMock()) as mock_log:
                 req = _make_single_request()
                 result = await specialist.handoff(req)

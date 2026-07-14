@@ -18,12 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import Settings
 from app.domain.agent.handoff import HandoffRequest, HandoffResult, SpecialistHandoffError
+from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
 from app.repositories.handoff_log_repo import HandoffLogRepository
 
 
@@ -82,13 +82,14 @@ class ContentWriterSpecialist:
                 duration_ms=duration_ms,
                 token_usage={},
             )
-        except Exception as exc:
+        # 编程错误让上层处理(不静默吞掉);只兜底 LLM transient 异常
+        except _LLM_TRANSIENT_EXCEPTIONS as exc:  # noqa: BLE001
             duration_ms = int((time.monotonic() - start) * 1000)
             result = HandoffResult(
                 handoff_id=request.handoff_id,
                 status="failed",
                 result=None,
-                error=f"未捕获异常: {exc!r}",
+                error=f"LLM transient 异常: {exc!r}",
                 duration_ms=duration_ms,
                 token_usage={},
             )
@@ -129,13 +130,13 @@ class ContentWriterSpecialist:
                 duration_ms=duration_ms,
                 token_usage={},
             )
-        except Exception as exc:
+        except _LLM_TRANSIENT_EXCEPTIONS as exc:  # noqa: BLE001
             duration_ms = int((time.monotonic() - start) * 1000)
             result = HandoffResult(
                 handoff_id=request.handoff_id,
                 status="failed",
                 result=None,
-                error=f"批量任务失败: {exc!r}",
+                error=f"批量任务 LLM transient 异常: {exc!r}",
                 duration_ms=duration_ms,
                 token_usage={},
             )
