@@ -321,3 +321,79 @@ def validate_tool_args(tool_name: str, args: dict) -> BaseModel:
     if tool_name not in _VALIDATORS:
         raise ValueError(f"Unknown tool: {tool_name}")
     return _VALIDATORS[tool_name](**args)
+
+
+# ---------------------------------------------------------------------------
+# v0.6+ P1#13（Task 14）：声明式权限元数据
+# ---------------------------------------------------------------------------
+#
+# 每个工具的权限/副作用/成本/幂等性集中声明，便于：
+# 1. ToolExecutor/HITL 决策不再硬编码 if/elif
+# 2. 未来加工具只需登记元数据，无需改 dispatch
+# 3. UI / 审计可查 side_effect / category 决定展示
+#
+# 字段说明：
+# - requires_confirmation: bool — 是否需要 HumanConfirmation 才能执行
+# - category: 'read'|'write'|'admin' — 业务分类
+# - side_effect: bool — 是否修改外部状态（DB / 文件 / 邮件）
+# - is_idempotent: bool — 重复调用结果是否相同
+# - estimated_cost_tier: 'low'|'medium'|'high' — LLM/算力成本量级
+#
+# v0.6 P1.6+ 行为变更：generate_article 走后台任务，不再抛 HumanConfirmation。
+_TOOL_PERMISSIONS: dict[str, dict] = {
+    "diagnose_brand": {
+        "requires_confirmation": False,
+        "category": "read",
+        "side_effect": False,
+        "is_idempotent": True,
+        "estimated_cost_tier": "low",
+    },
+    "search_knowledge": {
+        "requires_confirmation": False,
+        "category": "read",
+        "side_effect": False,
+        "is_idempotent": True,
+        "estimated_cost_tier": "low",
+    },
+    "generate_article": {
+        "requires_confirmation": False,  # v0.6 P1.6+ 走后端任务，无需用户确认
+        "category": "write",
+        "side_effect": True,
+        "is_idempotent": False,
+        "estimated_cost_tier": "high",
+    },
+    "list_knowledge_bases": {
+        "requires_confirmation": False,
+        "category": "read",
+        "side_effect": False,
+        "is_idempotent": True,
+        "estimated_cost_tier": "low",
+    },
+    "create_generation_task": {
+        "requires_confirmation": False,  # v0.6 P1.6+ 也走后台任务
+        "category": "write",
+        "side_effect": True,
+        "is_idempotent": False,
+        "estimated_cost_tier": "high",
+    },
+}
+
+
+def get_tool_permission(tool_name: str) -> dict:
+    """按名称获取工具权限声明。
+
+    Raises:
+        ValueError: 未知的工具名。
+    """
+    if tool_name not in _TOOL_PERMISSIONS:
+        raise ValueError(f"Unknown tool: {tool_name}")
+    return _TOOL_PERMISSIONS[tool_name]
+
+
+def requires_confirmation(tool_name: str) -> bool:
+    """便捷查询：工具是否需要 HumanConfirmation 才能执行（声明式）。
+
+    Raises:
+        ValueError: 未知的工具名。
+    """
+    return get_tool_permission(tool_name)["requires_confirmation"]

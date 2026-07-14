@@ -21,6 +21,7 @@ from app.domain.agent.tools import (
     GenerateArticleArgs,
     ListKnowledgeBasesArgs,
     SearchKnowledgeArgs,
+    requires_confirmation,
     validate_tool_args,
 )
 from app.tasks.task_worker import schedule_task
@@ -41,13 +42,21 @@ class ToolExecutor:
     async def execute(self, tool_name: str, args: dict) -> dict:
         """参数校验后分发到对应执行方法。
 
-        Raises:
-            ValueError: 未知工具。
-            pydantic.ValidationError: 参数不合法。
-            HumanConfirmationRequired: 写类工具，需要人工确认。
+        v0.6+ P1#13（Task 14）：先查 ``requires_confirmation`` 声明，
+        若为 True 则按未来 HITL 路径抛 HumanConfirmationRequired。
+        v0.6 P1.6+ 所有工具声明 ``requires_confirmation=False``，直执不暂停。
         """
         # 先校验参数
         validated = validate_tool_args(tool_name, args)
+
+        # v0.6+ P1#13：声明式权限查询（即使 v0.6 P1.6+ 全部 False，路径仍生效便于未来扩展）
+        if requires_confirmation(tool_name):
+            # 未来扩展点：当某工具声明 requires_confirmation=True 时，
+            # 应在此处构造 HumanConfirmationRequired 并 raise。
+            # 当前 v0.6 P1.6+ 全部工具声明 False,此分支不进入。
+            raise NotImplementedError(
+                f"{tool_name} 声明 requires_confirmation=True 但 v0.6 P1.6+ 暂未实现 HITL 路径"
+            )
 
         if tool_name == "diagnose_brand":
             return await self._execute_diagnose_brand(validated)
