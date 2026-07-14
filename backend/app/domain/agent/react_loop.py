@@ -30,6 +30,7 @@ from app.domain.agent.memory import MemoryService, scope_key
 from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.domain.agent.tool_executor import ToolExecutor
 from app.domain.agent.tools import TOOLS
+from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
 from app.domain.llm_client import LLMClient
 from app.models.orm_v04 import AgentMessageORM
 from app.repositories.agent_repo import AgentRepository
@@ -332,7 +333,26 @@ async def _drive_react_loop(
         )
         messages = _apply_memory_prepend(messages, memory_block)
 
-        response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
+        try:
+            response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
+        except _LLM_TRANSIENT_EXCEPTIONS as exc:
+            # v0.6+ P1#9（Task 10）：LLM 调用失败显式降级为 SSE 事件，
+            # 不再让异常穿透导致 SSE 流被切断。前端可看到 llm_error 事件并提示用户重试。
+            # 编程错误（AttributeError 等）不捕获，让它向上抛（不被吞）。
+            err_type = type(exc).__name__
+            logger.warning(
+                "llm_call_failed_transient",
+                session_id=session_id,
+                error_type=err_type,
+                message=str(exc),
+            )
+            yield {
+                "event": "llm_error",
+                "error_type": err_type,
+                "message": str(exc),
+                "retryable": True,
+            }
+            return
         _accumulate(agg, response.get("usage"))
         content = response.get("content")
         tool_calls = response.get("tool_calls") or []
