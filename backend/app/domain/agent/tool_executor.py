@@ -38,6 +38,20 @@ class ToolExecutor:
 
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
+        # v0.6+ Multi-Agent: lazy 加载 specialist(spec §4)
+        self._specialist = None
+
+    def _get_specialist(self):
+        """lazy 加载 ContentWriterSpecialist(避免循环导入,主 Agent 注入时已就绪)。"""
+        if self._specialist is None:
+            from app.core.config import get_settings
+            from app.core.db import get_session_factory
+            from app.domain.agent.content_writer_specialist import ContentWriterSpecialist
+            self._specialist = ContentWriterSpecialist(
+                settings=get_settings(),
+                session_factory=get_session_factory(),
+            )
+        return self._specialist
 
     async def execute(self, tool_name: str, args: dict) -> dict:
         """参数校验后分发到对应执行方法。
@@ -278,10 +292,10 @@ class ToolExecutor:
         }
 
     async def _execute_generate_article(self, args: GenerateArticleArgs) -> dict:
-        """生成文章（v0.6 P1.6: 默认走后台，与多篇统一路径）。
+        """生成文章（v0.6+ Multi-Agent: 走 specialist handoff,纪律 4 失败降级）。
 
-        与 P1.4 行为一致：创建 v0.2 TaskORM (article_count=1) + schedule_task，
-        立即返回 task_id，agent turn 结束。用户去 /tasks/<id> 看进度。
+        v0.6 P1.6: 默认走后台，与多篇统一路径。
+        v0.6+ Multi-Agent: 走 ContentWriterSpecialist.handoff,失败降级到 _execute_generate_article_legacy。
 
         与 create_generation_task 的区别：
         - create_generation_task 必须传 kb_id（基于 KB 召回）
@@ -291,6 +305,51 @@ class ToolExecutor:
         与 v0.4 老行为（抛 HumanConfirmationRequired）的差异：
         - 老设计：流式预览 + 用户确认 → 实时落 ArticleORM
         - 新设计：所有生成统一后台异步；实时预览需要 opt-in（暂未实现）
+        """
+        import uuid as _uuid
+        from datetime import datetime, timezone
+
+        from app.core.config import get_settings
+        from app.domain.agent.handoff import HandoffRequest
+
+        request = HandoffRequest(
+            handoff_id=str(_uuid.uuid4()),
+            specialist="content_writer",
+            task_id=self.session_id,
+            session_id=self.session_id,
+            started_at=datetime.now(timezone.utc),
+            timeout_seconds=get_settings().handoff_timeout_content_writer,
+            payload={
+                "mode": "single",
+                "kb_id": args.kb_id,
+                "brand": args.brand,
+                "topic": args.topic,
+                "keywords": args.keywords,
+                "style": args.style,
+                "target_length": args.target_length,
+                "chunks": [],  # 主 Agent 提前 search_knowledge 召回,此处不重复调
+            },
+        )
+
+        specialist = self._get_specialist()
+        result = await specialist.handoff(request)
+
+        if result.status == "success":
+            return result.result
+        # 纪律 4: 失败/超时降级到旧路径
+        logger.warning(
+            "specialist_handoff_failed_falling_back",
+            handoff_id=request.handoff_id,
+            status=result.status,
+            error=result.error,
+        )
+        return await self._execute_generate_article_legacy(args)
+
+    async def _execute_generate_article_legacy(self, args: GenerateArticleArgs) -> dict:
+        """v0.6 P1.6 旧路径,纪律 4 失败降级时使用。
+
+        创建 v0.2 TaskORM (article_count=1) + schedule_task,
+        立即返回 task_id。
         """
         from app.core.db import get_session_factory
         from app.repositories.task_repo import TaskRepository
@@ -305,12 +364,11 @@ class ToolExecutor:
                 brand=args.brand,
                 topic=args.topic,
                 keywords=args.keywords,
-                article_count=1,  # 单篇 = article_count=1 的多篇特例
+                article_count=1,
                 style=args.style,
                 target_length=args.target_length,
             )
 
-        # 触发后台 worker（v0.2 task_worker 已有）
         schedule_task(task.id)
 
         return {
@@ -318,7 +376,7 @@ class ToolExecutor:
             "kb_id": args.kb_id,
             "article_count": 1,
             "status": task.status,
-            "next_step": f"已创建单篇生成任务。请到 /tasks/{task.id} 详情页审核。",
+            "next_step": f"已创建单篇生成任务(specialist 失败,降级旧路径)。请到 /tasks/{task.id} 详情页审核。",
         }
 
     async def _execute_generate_article_confirmed(
@@ -383,14 +441,58 @@ class ToolExecutor:
     async def _execute_create_generation_task(
         self, args: CreateGenerationTaskArgs
     ) -> dict:
-        """创建内容生成任务（v0.2 TaskCreator 包装）.
+        """创建内容生成任务(v0.6+ Multi-Agent: 走 specialist handoff_batch,纪律 4 失败降级)。
 
-        与 generate_article 不同：这里**不抛 HumanConfirmationRequired**，
-        立即落 v0.2 tasks 表 + 触发 worker；agent turn 即结束。
+        v0.2 TaskCreator 包装。
+        v0.6+ Multi-Agent: 走 ContentWriterSpecialist.handoff_batch,失败降级到 _execute_create_generation_task_legacy。
         """
+        import uuid as _uuid
+        from datetime import datetime, timezone
+
+        from app.core.config import get_settings
+        from app.domain.agent.handoff import HandoffRequest
+
+        request = HandoffRequest(
+            handoff_id=str(_uuid.uuid4()),
+            specialist="content_writer",
+            task_id=self.session_id,
+            session_id=self.session_id,
+            started_at=datetime.now(timezone.utc),
+            timeout_seconds=get_settings().handoff_timeout_content_writer,
+            payload={
+                "mode": "batch",
+                "kb_id": args.kb_id,
+                "brand": args.brand,
+                "topic": args.topic,
+                "keywords": args.keywords,
+                "article_count": args.article_count,
+                "style": args.style,
+                "target_length": args.target_length,
+            },
+        )
+
+        specialist = self._get_specialist()
+        result = await specialist.handoff_batch(request)
+
+        if result.status == "success":
+            return result.result
+        # 失败降级
+        logger.warning(
+            "specialist_batch_handoff_failed_falling_back",
+            handoff_id=request.handoff_id,
+            status=result.status,
+            error=result.error,
+        )
+        return await self._execute_create_generation_task_legacy(args)
+
+    async def _execute_create_generation_task_legacy(
+        self, args: CreateGenerationTaskArgs
+    ) -> dict:
+        """v0.2 TaskCreator 旧路径,纪律 4 失败降级时使用。"""
         from app.core.db import get_session_factory
         from app.repositories.knowledge_repo import KnowledgeRepository
         from app.repositories.task_repo import TaskRepository
+        from app.tasks.task_worker import schedule_task
 
         async with get_session_factory()() as session:
             kb_repo = KnowledgeRepository(session)
@@ -399,7 +501,6 @@ class ToolExecutor:
                 raise ValueError(f"knowledge base not found: {args.kb_id}")
 
             task_repo = TaskRepository(session)
-            # 自动生成 task name = brand + topic 截断
             task_name = f"{args.brand} - {args.topic}"[:200]
             task = await task_repo.create_task(
                 name=task_name,
@@ -411,9 +512,7 @@ class ToolExecutor:
                 style=args.style,
                 target_length=args.target_length,
             )
-            # TaskRepository.create_task 内部已 commit，无需重复提交
 
-        # 触发后台 worker（v0.2 task_worker 已有）
         schedule_task(task.id)
 
         return {
@@ -421,5 +520,5 @@ class ToolExecutor:
             "kb_id": args.kb_id,
             "article_count": args.article_count,
             "status": task.status,
-            "next_step": f"已创建任务。请到 /tasks/{task.id} 详情页审核 {args.article_count} 篇草稿。",
+            "next_step": f"已创建任务(specialist 失败,降级旧路径)。请到 /tasks/{task.id} 详情页审核 {args.article_count} 篇草稿。",
         }
