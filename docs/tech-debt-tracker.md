@@ -132,6 +132,42 @@
 
 ---
 
+## 阶段 3 + 阶段 4 新增条目 (2026-07-14)
+
+### TD-011: 宽泛异常捕获 13 处（原代码）
+- **来源**：[broad_exception_scanner.py](../backend/app/core/broad_exception_scanner.py) 阶段 4 扫描 (Task 42)
+- **优先级**：P1（架构纪律）
+- **状态**：🟡 处理中
+- **估时**：1-2d（分批替换为 _LLM_TRANSIENT_EXCEPTIONS 或具体异常类）
+- **违反清单**（扫描器发现，13 处）：
+  - `app/services/notification_service.py:74`
+  - `app/services/report_service.py:64`
+  - `app/services/session_manager.py:39` + `noqa: BLE001`
+  - `app/services/ssrf.py:68`
+  - `app/tasks/task_worker.py:74, 135` + `noqa: BLE001`
+  - `app/api/knowledge.py:297, 697` 等
+- **修复方向**：先收 `noqa: BLE001` 注释，再把 `except Exception` 改为具体异常 + 显式 re-raise
+
+### TD-012: 阶段 4 P2 后 15 项（挑做，ROI 排序）
+- **来源**：[99-improvement-plan.md P2 部分](../review/99-improvement-plan.md) 阶段 4 范围
+- **优先级**：P2（卓越化）
+- **状态**：🔴 未处理
+- **估时**：~40d
+- **子项**（按 ROI 排序）：
+  - TD-012.1 token 上限硬限制（0.5d）
+  - TD-012.2 自动拒绝超时（0.5d）
+  - TD-012.3 CORS 生产严格化（0.5d）
+  - TD-012.4 权限操作审计日志独立表（1d）
+  - TD-012.5 评测可视化对比（2d）
+  - TD-012.6 定期后台 agent 扫描代码偏差（5d）
+  - TD-012.7 自动重构 PR 流程（5d）
+  - TD-012.8 ORM 版本迁移脚本 v02→v04（5d）
+  - TD-012.9 API 层加 auth 依赖（2d）
+  - TD-012.10 熵管理自动化（5d）
+- **修复方向**：阶段 5（可选）或新 session 按 ROI 挑做
+
+---
+
 ## 添加新条目
 
 新发现的 tech debt 在 PR 描述里引用 `TD-XXX` 编号，在本表登记并更新汇总计数。
