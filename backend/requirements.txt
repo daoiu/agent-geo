@@ -44,3 +44,7 @@ langfuse==2.59.0
 
 # v0.7+ P1#30 — Prometheus 指标导出（Task 31；geo_* 命名空间）
 prometheus-client==0.20.0
+
+# v0.8 — LangGraph prebuilt+StateGraph 替换 react_loop 主循环（spec 2026-07-14-langgraph-react-loop-design.md）
+langgraph>=1.0,<2.0
+langchain-core>=0.3,<1.0

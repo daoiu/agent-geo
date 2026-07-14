@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     # 主 provider 失败切下一个。逗号分隔 provider 名。
     fallback_chain: str = "deepseek,kimi"
 
+    # v0.8 — LangGraph 主循环开关（spec 2026-07-14-langgraph-react-loop §10.2）
+    # 默认 False 沿用 react_loop.py，生产切流走 env LANGGRAPH_ENABLED=true
+    langgraph_enabled: bool = False
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
