@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     tool_result_max_chars: int = 2000    # 旧 tool 结果截断字符上限
     tool_result_keep_recent: int = 3     # 最近 N 个 tool 结果保全量
 
+    # v0.6+ P1#7 — Agent Loop 迭代上限（Task 8：从 react_loop.py 硬编码常量提到 Settings）
+    max_react_iterations: int = 7        # 阶段 1 默认值,与原 MAX_REACT_ITERATIONS 一致
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""

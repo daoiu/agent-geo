@@ -2,7 +2,7 @@
 
 设计要点：
 - 自写循环（不引 LangGraph / LangChain）
-- MAX_REACT_ITERATIONS = 7 防无限循环
+- max_react_iterations（来自 Settings）防无限循环，阶段 1 硬编码 7，阶段 2 P1#7（Task 8）提到 Settings
 - 流式 yield SSE 事件（assistant_message / tool_call_start / tool_call_result /
   human_confirmation_required / turn_complete / max_iterations_reached）
 - 写类工具抛 HumanConfirmationRequired 暂停循环
@@ -32,7 +32,9 @@ from app.domain.llm_client import LLMClient
 from app.models.orm_v04 import AgentMessageORM
 from app.repositories.agent_repo import AgentRepository
 
-MAX_REACT_ITERATIONS = 7  # v0.6 P1.4: 5 → 7，留余量给 list → search → create_task
+# v0.6 P1.4: 5 → 7，留余量给 list → search → create_task。
+# v0.6+ P1#7: 此常量已上移到 core/config.py:Settings.max_react_iterations（Task 8），
+# 便于 env 覆盖，调用方 get_settings().max_react_iterations。
 logger = structlog.get_logger()
 
 # Fire-and-forget 持有的后台任务集合,避免被 GC
@@ -294,7 +296,7 @@ async def _drive_react_loop(
         memory_block = await memory_service.load_relevant_memories(scope, history)
 
     agg = _new_metrics()
-    for _iteration in range(MAX_REACT_ITERATIONS):
+    for _iteration in range(settings.max_react_iterations):
         messages = build_messages(
             history,
             memory_index_segment=memory_index_segment,
@@ -409,7 +411,7 @@ async def _drive_react_loop(
     _emit_metrics(agg, session_id, device_id, "max_iterations_reached")
     yield {
         "event": "max_iterations_reached",
-        "message": f"agent 达到最大推理步数 ({MAX_REACT_ITERATIONS})",
+        "message": f"agent 达到最大推理步数 ({settings.max_react_iterations})",
     }
 
 

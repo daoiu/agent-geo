@@ -1,6 +1,6 @@
 """Tests for AGENT_SYSTEM_PROMPT strategy section (v0.6 P1.4)."""
+from app.core.config import get_settings
 from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
-from app.domain.agent.react_loop import MAX_REACT_ITERATIONS
 
 
 def test_prompt_mentions_list_knowledge_bases() -> None:
@@ -20,5 +20,5 @@ def test_prompt_mandates_source_attribution() -> None:
 
 
 def test_max_react_iterations_is_seven() -> None:
-    """MAX_REACT_ITERATIONS 从 5 提到 7，给 list → search → create_task 三步留余量."""
-    assert MAX_REACT_ITERATIONS == 7
+    """Settings.max_react_iterations 默认 7（v0.6 P1.4: 5 → 7，给 list → search → create_task 三步留余量）。"""
+    assert get_settings().max_react_iterations == 7
