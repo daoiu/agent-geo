@@ -132,7 +132,120 @@ async def run_all() -> EvalReport:
 
 
 if __name__ == "__main__":
-    report = asyncio.run(run_all())
-    import json
+    import sys
 
-    print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    # CLI: --compare 双跑 react_loop + langgraph 模式
+    if "--compare" in sys.argv:
+        from pathlib import Path
+
+        from .cases import EVAL_CASES
+
+        out = Path("reports/eval/diff")
+        cases = [
+            {"session_id": c.id, "message": c.query}
+            for c in EVAL_CASES[:10]
+        ]
+        report = asyncio.run(compare_evals(cases, output_dir=out))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        report = asyncio.run(run_all())
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+
+
+# ===========================================================================
+# v0.8 — Compare 双跑 (spec §10.1 / Task 13)
+# ===========================================================================
+import json
+from pathlib import Path
+from typing import Any, AsyncIterator
+
+
+async def _collect_sse(run_fn, session_id: str, message: str) -> list[dict]:
+    """收集 AsyncIterator[bytes] 的 SSE chunk 并解析为 list[dict]。"""
+    chunks = []
+    async for sse in run_fn(session_id=session_id, message=message):
+        try:
+            chunks.append(json.loads(sse))
+        except json.JSONDecodeError:
+            pass
+    return chunks
+
+
+def _rouge_l(a: str, b: str) -> float:
+    """简化 ROUGE-L:最长公共子序列长度 / max(len(a), len(b))。"""
+    if not a or not b:
+        return 0.0 if a != b else 1.0
+    la, lb = a.split(), b.split()
+    m, n = len(la), len(lb)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(m):
+        for j in range(n):
+            dp[i + 1][j + 1] = (
+                dp[i][j] + 1 if la[i] == lb[j] else max(dp[i + 1][j], dp[i][j + 1])
+            )
+    return dp[m][n] / max(m, n)
+
+
+async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
+    """同一 input 跑 react_loop 与 langgraph,产出 diff 报告(spec §10.1)。
+
+    Returns:
+        dict 含 overall_match / tool_call_match / handoff_match / sse_event_count_equal
+    """
+    from app.domain.agent.dispatch import _run_react_loop_turn, _run_langgraph_turn
+
+    overall_matches: list[float] = []
+    tool_matches: list[float] = []
+    handoff_matches: list[float] = []
+    sse_counts: list[bool] = []
+
+    for c in cases:
+        react_chunks = await _collect_sse(_run_react_loop_turn, c["session_id"], c["message"])
+        lang_chunks = await _collect_sse(_run_langgraph_turn, c["session_id"], c["message"])
+
+        # text 相似度(LangGraph output 与 react_loop 一致应为 ≥95%)
+        react_text = "".join(
+            x.get("content", "") for x in react_chunks
+            if x.get("event") == "assistant_message"
+        )
+        lang_text = "".join(
+            x.get("content", "") for x in lang_chunks
+            if x.get("event") == "assistant_message"
+        )
+        overall_matches.append(_rouge_l(react_text, lang_text))
+
+        # tool_call 一致
+        react_tools = {x.get("tool_name") for x in react_chunks if x.get("event") == "tool_call_start"}
+        lang_tools = {x.get("tool_name") for x in lang_chunks if x.get("event") == "tool_call_start"}
+        tool_matches.append(1.0 if react_tools == lang_tools else 0.0)
+
+        # handoff event 一致
+        react_handoff = sum(1 for x in react_chunks if x.get("event") == "human_confirmation_required")
+        lang_handoff = sum(1 for x in lang_chunks if x.get("event") == "human_confirmation_required")
+        handoff_matches.append(1.0 if react_handoff == lang_handoff else 0.0)
+
+        sse_counts.append(len(react_chunks) == len(lang_chunks))
+
+    report = {
+        "overall_match": sum(overall_matches) / len(overall_matches) if overall_matches else 1.0,
+        "tool_call_match": sum(tool_matches) / len(tool_matches),
+        "handoff_match": sum(handoff_matches) / len(handoff_matches),
+        "sse_event_count_equal": all(sse_counts),
+    }
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "diff_report.md").write_text(
+        f"""# Compare Report
+overall_match: {report['overall_match']:.3f}
+tool_call_match: {report['tool_call_match']}
+handoff_match: {report['handoff_match']}
+sse_event_count_equal: {report['sse_event_count_equal']}
+
+逐 case diff 见 Langfuse / `reports/eval/diff/` 详细日志。
+""",
+        encoding="utf-8",
+    )
+    return report
+
+
+__all__ = ["EvalReport", "run_all", "compare_evals"]  # noqa: F822
