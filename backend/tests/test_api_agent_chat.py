@@ -176,3 +176,126 @@ def test_confirm_action_wrong_session_returns_404(client: TestClient) -> None:
         json={"approved": True},
     )
     assert resp.status_code == 404
+
+
+# ===========================================================================
+# v0.6+ P1#14（Task 15）：HumanConfirmation 专项 edge case
+# ===========================================================================
+
+
+def test_confirm_reject_writes_cancel_messages_to_db(client: TestClient) -> None:
+    """reject 应在 DB 追加 '取消' user + '好的,已取消。' assistant 两条消息。
+
+    验证 reject 副作用完整,不只是返回 JSON。
+    """
+    from app.core.db import get_session_factory
+    from app.repositories.agent_repo import AgentRepository
+
+    async def _setup() -> tuple[str, str]:
+        async with get_session_factory()() as s:
+            repo = AgentRepository(s)
+            sess = await repo.create_session(title="T")
+            msg = await repo.create_message(
+                session_id=sess.id, role="assistant", content="...",
+                pending_confirmation=True,
+            )
+            return sess.id, msg.id
+
+    sid, msg_id = asyncio.run(_setup())
+
+    resp = client.post(
+        f"/api/agent/sessions/{sid}/messages/{msg_id}/confirm",
+        json={"approved": False},
+    )
+    assert resp.status_code == 200
+
+    # 验证 DB:原 pending msg 被 resolved,且追加了 2 条消息
+    async def _verify() -> None:
+        async with get_session_factory()() as s:
+            repo = AgentRepository(s)
+            original = await repo.get_message(msg_id)
+            assert original.pending_confirmation == 0, "pending msg 应被 resolved"
+
+            msgs = await repo.list_messages(sid)
+            contents = [m.content for m in msgs]
+            assert "取消" in contents, f"应有 '取消' user 消息,实际 {contents}"
+            assert any("已取消" in c for c in contents), (
+                f"应有 '好的,已取消。' assistant 消息,实际 {contents}"
+            )
+
+    asyncio.run(_verify())
+
+
+def test_confirm_reject_then_approve_returns_409(client: TestClient) -> None:
+    """同一 pending msg 先 reject,再 approve 应 409(已 resolved)。
+
+    验证 state machine:reject 后消息不可再被 approve。
+    """
+    from app.core.db import get_session_factory
+    from app.repositories.agent_repo import AgentRepository
+
+    async def _setup() -> tuple[str, str]:
+        async with get_session_factory()() as s:
+            repo = AgentRepository(s)
+            sess = await repo.create_session(title="T")
+            msg = await repo.create_message(
+                session_id=sess.id, role="assistant", content="...",
+                pending_confirmation=True,
+            )
+            return sess.id, msg.id
+
+    sid, msg_id = asyncio.run(_setup())
+
+    # 第一次 reject 应成功
+    resp1 = client.post(
+        f"/api/agent/sessions/{sid}/messages/{msg_id}/confirm",
+        json={"approved": False},
+    )
+    assert resp1.status_code == 200
+
+    # 第二次 approve 应 409
+    resp2 = client.post(
+        f"/api/agent/sessions/{sid}/messages/{msg_id}/confirm",
+        json={"approved": True},
+    )
+    assert resp2.status_code == 409
+
+
+def test_confirm_wrong_session_leaves_msg_pending(client: TestClient) -> None:
+    """跨 session 访问 404 应不改 pending 状态(不应误 resolve)。
+
+    防止 404 路径误改 DB。
+    """
+    from app.core.db import get_session_factory
+    from app.repositories.agent_repo import AgentRepository
+
+    async def _setup() -> tuple[str, str, str]:
+        async with get_session_factory()() as s:
+            repo = AgentRepository(s)
+            sess_a = await repo.create_session(title="A")
+            sess_b = await repo.create_session(title="B")
+            msg = await repo.create_message(
+                session_id=sess_a.id, role="assistant", content="...",
+                pending_confirmation=True,
+            )
+            return sess_a.id, sess_b.id, msg.id
+
+    sid_a, sid_b, msg_id = asyncio.run(_setup())
+
+    # 用 sid_b 访问 sess_a 的 msg → 404
+    resp = client.post(
+        f"/api/agent/sessions/{sid_b}/messages/{msg_id}/confirm",
+        json={"approved": False},
+    )
+    assert resp.status_code == 404
+
+    # 验证 msg 仍为 pending
+    async def _verify() -> None:
+        async with get_session_factory()() as s:
+            repo = AgentRepository(s)
+            m = await repo.get_message(msg_id)
+            assert m.pending_confirmation == 1, (
+                f"404 不应改 pending 状态,实际 {m.pending_confirmation}"
+            )
+
+    asyncio.run(_verify())
