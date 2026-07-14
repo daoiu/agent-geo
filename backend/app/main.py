@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import agent_chat, agent_sessions, articles, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
 from app.core.config import get_settings
 from app.core.db import dispose_db, init_db
+from app.core.sentry_init import init_sentry_from_settings
 
 logger = structlog.get_logger()
 
@@ -16,6 +17,14 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """App startup + shutdown."""
+    # v0.6+ P1#17（Task 18）：Sentry 异常聚合接入
+    # SENTRY_DSN 缺失时静默 no-op,不阻塞启动
+    sentry_initialized = init_sentry_from_settings()
+    if sentry_initialized:
+        logger.info("sentry_initialized")
+    else:
+        logger.info("sentry_skipped_dsn_missing")
+
     await init_db()
     # v0.3 — start monitor scheduler and reload active tasks from DB
     from app.domain.monitor.scheduler import (

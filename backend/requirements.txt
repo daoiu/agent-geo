@@ -35,3 +35,6 @@ mypy==1.11.0
 
 # v0.6+ P1#11 — Token 级截断（Task 12）
 tiktoken==0.8.0
+
+# v0.6+ P1#17 — Sentry 异常聚合（Task 18；DSN 缺失时 init_sentry 静默 no-op）
+sentry-sdk[fastapi]==2.19.2
