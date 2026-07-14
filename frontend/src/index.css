@@ -3,37 +3,39 @@
 @tailwind utilities;
 
 /* ───────────────────────────────────────────────────────────────
-   v0.6 Design Tokens — brand colors locked here.
+   v0.7 Design Tokens — HarmonyOS brand colors locked here.
    All values use HSL components (no hsl() wrapper) for opacity control.
    UI components alias these via tailwind.config.js.
+   Mirror of src/lib/tokens.ts (hex literals are the source of truth; the
+   hex→HSL mapping here is close enough for visual use).
    ─────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    /* Brand — Teal #0D9488 */
-    --brand-primary: 174 76% 30%;
-    --brand-primary-50: 166 92% 96%;
-    --brand-primary-100: 167 85% 89%;
+    /* Brand — HarmonyOS Blue #0A59F7 */
+    --brand-primary: 219 91% 50%;
+    --brand-primary-light: 219 92% 56%;
+    --brand-primary-tint: 218 86% 95%;
     --brand-primary-fg: 0 0% 100%;
-    --brand-secondary: 173 80% 40%;
-    --brand-accent: 14 88% 47%; /* Orange #EA580C */
-    --brand-accent-fg: 0 0% 100%;
+    --brand-secondary: 219 92% 56%;
+    --brand-accent: 232 100% 83%; /* HarmonyOS Accent #A8B0FF */
+    --brand-accent-fg: 240 6% 11%;
 
     /* Status */
-    --brand-success: 160 84% 39%;
-    --brand-warning: 38 95% 53%;
-    --brand-danger: 0 73% 51%;
-    --brand-info: 200 95% 46%;
+    --brand-success: 145 66% 52%;
+    --brand-warning: 16 100% 64%;
+    --brand-danger: 357 75% 58%;
+    --brand-info: 219 92% 56%;
 
     /* Surface */
     --brand-bg: 0 0% 100%;
-    --brand-bg-subtle: 210 40% 98%;
-    --brand-bg-stage: 183 100% 96%;
-    --brand-fg: 218 47% 11%;
-    --brand-fg-muted: 215 16% 35%;
-    --brand-fg-dim: 216 14% 65%;
-    --brand-border: 214 20% 86%;
-    --brand-border-strong: 213 19% 75%;
-    --brand-ring: 174 76% 30%;
+    --brand-bg-subtle: 210 17% 95%;
+    --brand-bg-stage: 218 86% 95%;
+    --brand-fg: 240 6% 11%;
+    --brand-fg-muted: 220 9% 46%;
+    --brand-fg-dim: 220 9% 65%;
+    --brand-border: 220 13% 91%;
+    --brand-border-strong: 220 13% 83%;
+    --brand-ring: 219 91% 50%;
 
     /* shadcn-compatible aliases — slate base + brand overrides */
     --background: var(--brand-bg);
@@ -56,12 +58,17 @@
     --input: var(--brand-border);
     --ring: var(--brand-ring);
 
-    /* Radius scale */
-    --radius: 0.625rem;
+    /* Radius scale — HarmonyOS large rounded */
+    --radius: 1rem;
+
+    /* Glass — HarmonyOS frosted surface (spec §4.5) */
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-blur: 20px;
+    --glass-border: 1px solid rgba(255, 255, 255, 0.18);
   }
 
-  /* v0.6: dark mode interface is reserved; never published yet.
-     When added in v0.7+, switch the body root class to .dark via next-themes. */
+  /* v0.7: dark mode glass variant for HarmonyOS dark surface.
+     Add `.dark` to <html> to flip — wired in Task 11 dev-tools. */
   .dark {
     --background: 222 47% 6%;
     --foreground: 210 40% 98%;
@@ -81,7 +88,9 @@
     --destructive-foreground: 210 40% 98%;
     --border: 217 33% 17%;
     --input: 217 33% 17%;
-    --ring: 173 80% 40%;
+    --ring: 219 91% 60%;
+    --glass-bg: rgba(0, 0, 0, 0.7);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.08);
   }
 }
 
@@ -92,7 +101,8 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    font-family: 'HarmonyOS Sans', -apple-system, 'PingFang SC',
+      'Microsoft YaHei', system-ui, sans-serif;
     font-feature-settings: 'cv11', 'ss01', 'ss03';
   }
 
