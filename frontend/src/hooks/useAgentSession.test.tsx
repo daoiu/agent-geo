@@ -20,7 +20,8 @@ import {
   confirmAgentActionStream,
 } from '@/api/client';
 import { useAgentSession } from './useAgentSession';
-import type { AgentSessionDetail, AgentEvent } from '@/types/v0.4';
+import type { AgentSessionDetail } from '@/types/v0.4';
+import type { AgentEventV7 } from '@/types/v0.7';
 
 const mockedApi = vi.mocked(api);
 const mockedSend = vi.mocked(sendAgentMessageStream);
@@ -66,8 +67,8 @@ describe('useAgentSession', () => {
   it('optimistically inserts a user message and streams assistant reply', async () => {
     mockedApi.getAgentSession.mockResolvedValue(makeSession({ messages: [] }));
     async function* gen() {
-      yield { event: 'assistant_message', content: 'hi back' } as AgentEvent;
-      yield { event: 'turn_complete' } as AgentEvent;
+      yield { event: 'assistant_message', content: 'hi back' } as AgentEventV7;
+      yield { event: 'turn_complete' } as AgentEventV7;
     }
     mockedSend.mockImplementation(() => gen());
 
@@ -103,13 +104,13 @@ describe('useAgentSession', () => {
         tool_call_id: 'tc1',
         tool_name: 'diagnose_brand',
         arguments: { brand: '小米' },
-      } as AgentEvent;
+      } as AgentEventV7;
       yield {
         event: 'tool_call_result',
         tool_call_id: 'tc1',
         result: { ok: true },
-      } as AgentEvent;
-      yield { event: 'turn_complete' } as AgentEvent;
+      } as AgentEventV7;
+      yield { event: 'turn_complete' } as AgentEventV7;
     }
     mockedSend.mockImplementation(() => gen());
 
@@ -139,7 +140,7 @@ describe('useAgentSession', () => {
         message_id: 'm1',
         tool_name: 'generate_article',
         arguments: { topic: 'AI' },
-      } as AgentEvent;
+      } as AgentEventV7;
       // stream stalls here (no turn_complete) — that's fine, we just inspect pending
     }
     mockedSend.mockImplementation(() => gen());
@@ -170,10 +171,10 @@ describe('useAgentSession', () => {
         message_id: 'm1',
         tool_name: 'generate_article',
         arguments: {},
-      } as AgentEvent;
+      } as AgentEventV7;
     }
     async function* confirmGen() {
-      yield { event: 'turn_complete' } as AgentEvent;
+      yield { event: 'turn_complete' } as AgentEventV7;
     }
     mockedSend.mockImplementation(() => pendingGen());
     mockedConfirm.mockImplementation(() => confirmGen());
@@ -205,7 +206,7 @@ describe('useAgentSession', () => {
         message_id: 'm1',
         tool_name: 'generate_article',
         arguments: {},
-      } as AgentEvent;
+      } as AgentEventV7;
     }
     mockedSend.mockImplementation(() => gen());
 

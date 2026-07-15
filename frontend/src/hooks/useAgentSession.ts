@@ -3,11 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api, confirmAgentActionStream, sendAgentMessageStream } from '@/api/client';
 import type {
-  AgentEvent,
   AgentMessage,
   AgentSessionDetail,
   PendingConfirmation,
 } from '@/types/v0.4';
+import type { AgentEventV7 as AgentEvent } from '@/types/v0.7';
 import type { ToolCallDisplay } from '@/components/ToolCallCard';
 
 export interface UseAgentSessionResult {

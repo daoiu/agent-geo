@@ -59,11 +59,24 @@ function defaultFactories(sessionId: string) {
   };
 }
 
-export type StreamFactories = ReturnType<typeof defaultFactories>;
+export interface StreamFactories {
+  send: (content: string) => AsyncGenerator<AgentEventV7>;
+  confirm: (messageId: string, approved: boolean) => AsyncGenerator<AgentEventV7>;
+  replay: (messageId: string) => AsyncGenerator<AgentEventV7>;
+}
+
+export type StreamFactory = (sessionId: string) => StreamFactories;
 
 export function useAgentStream(sessionId: string): UseAgentStream {
-  return useAgentStreamFor(sessionId, defaultFactories);
+  return useAgentStreamFor(sessionId, defaultFactories(sessionId));
 }
+
+/**
+ * `sessionId` is bound at the hook so future helpers (eg AbortController
+ * keyed by session, LangGraph flag per session) can read it off the
+ * closures.  For now we keep it on a ref so it doesn't trip
+ * `noUnusedParameters` while documenting the binding intent.
+ */
 
 /**
  * useAgentStreamFor — accepts a `factories` map so unit tests can
@@ -73,6 +86,10 @@ export function useAgentStreamFor(
   sessionId: string,
   factories: StreamFactories,
 ): UseAgentStream {
+  // Document the intent of binding sessionId at the hook level (kept off
+  // a ref so future AbortController/LangGraph-flag logic can read it).
+  // Avoid tripping noUnusedParameters in the meantime.
+  void sessionId;
   const [state, setState] = useState<AgentStreamState>({
     messages: '',
     tools: [],

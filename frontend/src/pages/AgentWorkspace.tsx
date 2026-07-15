@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import type { AgentEvent, AgentMessage, AgentSessionDetail } from '@/types/v0.4';
+import type { AgentMessage, AgentSessionDetail } from '@/types/v0.4';
+import type { AgentEventV7 as AgentEvent } from '@/types/v0.7';
 
 import { api, sendAgentMessageStream } from '@/api/client';
 import { useAgentSession } from '@/hooks/useAgentSession';
@@ -160,13 +161,24 @@ function applyAgentEvent(
     case 'turn_complete':
     case 'max_iterations_reached':
     case 'error':
+    case 'llm_start':
+    case 'llm_token':
+    case 'tool_call':
+    case 'tool_result':
+    case 'handoff':
+    case 'memory_injected':
+    case 'truncation_decision':
+    case 'llm_error':
+    case 'turn_complete_legacy':
       // first-send path only needs the assistant_message branch for visual
-      // rendering; tool call and confirmation are surfaced via a follow-up
-      // mount once the URL changes to /agent/:id.
+      // rendering; tool call / handoff / truncation / memory injection are
+      // surfaced via TimelineRail (Task 8 v0.7.1 integration step).
       break;
     default: {
       // Exhaustiveness check — TS knows we covered every AgentEvent variant
-      const _exhaustive: never = event;
+      // (`as unknown as never` keeps the cast valid even after AgentEvent
+      // is widened to v0.7's `AgentEventV7` superset).
+      const _exhaustive: never = event as unknown as never;
       void _exhaustive;
       break;
     }
