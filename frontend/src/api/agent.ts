@@ -50,10 +50,16 @@ export const agentApi = {
     sessionId: string,
     messageId: string,
     approved: boolean,
+    options?: { reason?: string },
   ): Promise<{ status: string; message_id: string }> {
+    // v0.7 — when rejecting, `reason` is mandatory and enters the LLM
+    // context (P1 #26).  When approving, we omit it entirely so the
+    // backend sees `None` rather than empty string.
+    const body: { approved: boolean; reason?: string } = { approved };
+    if (!approved && options?.reason) body.reason = options.reason;
     return request(`/agent/sessions/${sessionId}/messages/${messageId}/confirm`, {
       method: 'POST',
-      body: JSON.stringify({ approved }),
+      body: JSON.stringify(body),
     });
   },
 
