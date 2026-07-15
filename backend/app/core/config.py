@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     kimi_base_url: str = "https://api.moonshot.cn/v1"
     kimi_model: str = "moonshot-v1-8k"
 
+    # OpenAI
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+
     # LLM selection (comma-separated)
     llm_providers: str = "deepseek"
 
@@ -143,6 +148,103 @@ class Settings(BaseSettings):
         """Parse fallback_chain into list of provider names."""
         return [p.strip() for p in self.fallback_chain.split(",") if p.strip()]
 
+    def merge_runtime_overrides(
+        self,
+        snapshot: "ModelConfigSnapshot | None",
+    ) -> None:
+        """把 JSON 快照合并进 self（仅 mutate 我们关心的字段）。
+
+        规则（spec §4.2 / §5.1）：
+        - 快照里没字段 → 不动 self（保留 .env baseline）
+        - provider 名不在 PROVIDERS_META → 跳过 + warning
+        - tier 值不在 PROVIDERS_META → 跳过该 tier + warning
+        - fallback_chain / llm_providers 任一元素未注册 → 跳过整个列表 + warning
+        - api_key 密文 → 解密后 setattr；解密失败 → 跳过该 provider key
+        """
+        from app.core.providers import PROVIDERS_META
+        from cryptography.fernet import Fernet, InvalidToken
+        import structlog
+
+        log = structlog.get_logger()
+        if snapshot is None:
+            return
+
+        registered = set(PROVIDERS_META.keys())
+        cipher = None
+        if self.encryption_key:
+            try:
+                cipher = Fernet(self.encryption_key.encode())
+            except (ValueError, TypeError):
+                log.warning("encryption_key_invalid_format_skipping_keys")
+                cipher = None
+
+        # provider name → Settings 字段名映射
+        provider_field_map = {
+            "deepseek": {
+                "api_key": "deepseek_api_key",
+                "base_url": "deepseek_base_url",
+                "model": "deepseek_model",
+            },
+            "kimi": {
+                "api_key": "kimi_api_key",
+                "base_url": "kimi_base_url",
+                "model": "kimi_model",
+            },
+            "openai": {
+                "api_key": "openai_api_key",
+                "base_url": "openai_base_url",
+                "model": "openai_model",
+            },
+        }
+
+        # providers → setattr
+        for name, override in snapshot.providers.items():
+            mapping = provider_field_map.get(name)
+            if mapping is None:
+                log.warning("unknown_provider_in_overrides", provider=name)
+                continue
+            if override.api_key_encrypted and cipher is not None:
+                try:
+                    plain = cipher.decrypt(override.api_key_encrypted.encode()).decode()
+                    setattr(self, mapping["api_key"], plain)
+                except (InvalidToken, ValueError):
+                    log.warning("api_key_decrypt_failed_skip", provider=name)
+            if override.base_url:
+                setattr(self, mapping["base_url"], override.base_url)
+            if override.model:
+                setattr(self, mapping["model"], override.model)
+
+        # tiers
+        tier_attr_map = {
+            "cheap": "model_tier_cheap",
+            "standard": "model_tier_standard",
+            "premium": "model_tier_premium",
+        }
+        for tier_key, provider_name in snapshot.tiers.items():
+            attr = tier_attr_map.get(tier_key)
+            if attr is None:
+                continue
+            if provider_name not in registered:
+                log.warning("invalid_tier_provider_skip", tier=tier_key, provider=provider_name)
+                continue
+            setattr(self, attr, provider_name)
+
+        # fallback_chain — 任一元素未注册 → 跳过整条
+        if snapshot.fallback_chain:
+            if all(p in registered for p in snapshot.fallback_chain):
+                self.fallback_chain = ",".join(snapshot.fallback_chain)
+            else:
+                bad = [p for p in snapshot.fallback_chain if p not in registered]
+                log.warning("invalid_fallback_chain_providers_skip", bad=bad)
+
+        # llm_providers — 同上
+        if snapshot.llm_providers:
+            if all(p in registered for p in snapshot.llm_providers):
+                self.llm_providers = ",".join(snapshot.llm_providers)
+            else:
+                bad = [p for p in snapshot.llm_providers if p not in registered]
+                log.warning("invalid_llm_providers_skip", bad=bad)
+
     @model_validator(mode="after")
     def _require_some_api_key(self) -> "Settings":
         """Fail loudly at startup if no LLM key is configured at all.
@@ -173,5 +275,33 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Cached settings singleton."""
-    return Settings()
+    """Cached settings singleton (with runtime overrides merged)."""
+    s = Settings()
+    store = get_default_model_config_store()
+    snapshot = store.load_snapshot()
+    s.merge_runtime_overrides(snapshot)
+    return s
+
+
+_DEFAULT_MODEL_CONFIG_STORE: "ModelConfigStore | None" = None
+
+
+def get_default_model_config_store() -> "ModelConfigStore":
+    """获取默认 ModelConfigStore 单例（路径 data/model_config.json）。"""
+    global _DEFAULT_MODEL_CONFIG_STORE
+    if _DEFAULT_MODEL_CONFIG_STORE is None:
+        from app.core.model_config_store import ModelConfigStore
+
+        settings_for_path = Settings()
+        data_dir = Path(settings_for_path.database_url.replace("sqlite+aiosqlite:///", "")).parent
+        _DEFAULT_MODEL_CONFIG_STORE = ModelConfigStore(
+            path=data_dir / "model_config.json",
+            encryption_key=settings_for_path.encryption_key or "",
+        )
+    return _DEFAULT_MODEL_CONFIG_STORE
+
+
+def reset_default_model_config_store() -> None:
+    """测试用：清除单例。"""
+    global _DEFAULT_MODEL_CONFIG_STORE
+    _DEFAULT_MODEL_CONFIG_STORE = None
