@@ -85,7 +85,7 @@ export function NavDrawer({
                     <li key={item.to}>
                       <Link
                         to={item.to}
-                        className="block rounded-md px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-primary-tint/40 hover:text-primary"
+                        className="block rounded-md px-2 py-1.5 text-sm text-fg-muted transition-colors hover:bg-primary-tint/40 hover:text-primary"
                       >
                         {item.label}
                       </Link>
