@@ -5,7 +5,7 @@
  * Mounted routes (App.tsx): `/generate/tasks/*` + `/generate/reviews/*`.
  */
 import type { Article, Task } from '@/types/v0.2';
-import { request } from './infra';
+import { ApiError, authHeaders, request } from './infra';
 
 export const generateApi = {
   listTasks(): Promise<Task[]> {
@@ -69,6 +69,20 @@ export const generateApi = {
    */
   getArticleDownloadUrl(articleId: string): string {
     return `/api/reviews/${articleId}/download`;
+  },
+
+  /**
+   * Stream the article markdown from the backend (spec §7.1 / Task 15).
+   * The browser-side `Blob` route is faster for small articles; the
+   * streaming route is preferred for very long articles where the
+   * server can apply formatting fixes in the same response.
+   */
+  async downloadArticle(articleId: string): Promise<Blob> {
+    const resp = await fetch(generateApi.getArticleDownloadUrl(articleId), {
+      headers: authHeaders(),
+    });
+    if (!resp.ok) throw new ApiError(resp.status, await resp.text());
+    return resp.blob();
   },
 };
 
