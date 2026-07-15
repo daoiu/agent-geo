@@ -29,6 +29,7 @@ import {
 } from './agent';
 import { handoffApi } from './handoff';
 import { costApi } from './cost';
+import { settingsApi } from './settings';
 
 export {
   parseSSE,
@@ -47,6 +48,7 @@ export {
   agentApi,
   handoffApi,
   costApi,
+  settingsApi,
 };
 
 /**
@@ -64,4 +66,5 @@ export const api = {
   ...agentApi,
   ...handoffApi,
   ...costApi,
+  ...settingsApi,
 };

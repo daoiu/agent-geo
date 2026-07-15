@@ -6,7 +6,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agent_chat, agent_sessions, articles, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, tasks
+from app.api import agent_chat, agent_sessions, articles, diagnosis, knowledge, monitors, notifications, publishers, reports, reviews, settings_model, tasks
 from app.core.config import get_settings
 from app.core.db import dispose_db, init_db
 from app.core.langfuse_init import init_langfuse
@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(monitors.router, prefix="/api")
     app.include_router(agent_sessions.router, prefix="/api")
     app.include_router(agent_chat.router, prefix="/api")
+    app.include_router(settings_model.router, prefix="/api")
     # Prometheus 指标(P1#30 / Task 31)
     from app.core.metrics import router as metrics_router
     app.include_router(metrics_router)

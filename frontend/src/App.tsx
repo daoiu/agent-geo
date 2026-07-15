@@ -22,6 +22,7 @@ import MonitorDetail from '@/pages/MonitorDetail';
 import NewMonitor from '@/pages/NewMonitor';
 import NotificationSettings from '@/pages/NotificationSettings';
 import AgentWorkspace from '@/pages/AgentWorkspace';
+import ModelsSettings from '@/pages/ModelsSettings';
 
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
@@ -99,7 +100,7 @@ function LayoutShellRouter() {
         onToggleDark={toggleTheme}
       >
       <Routes>
-        {/* v0.7 IA — 6 drawer category roots mount the real pages. */}
+{/* v0.7 IA — 6 drawer category roots mount the real pages. */}
         <Route path={ROUTES.diagnose} element={<Dashboard />} />
         <Route path={ROUTES.diagnoseNew} element={<NewDiagnosis />} />
         <Route path={ROUTES.diagnoseRun} element={<DiagnosisStatus />} />
@@ -120,6 +121,7 @@ function LayoutShellRouter() {
         <Route path={ROUTES.monitorTask} element={<MonitorDetail />} />
         <Route path={ROUTES.settingsNotifications} element={<NotificationSettings />} />
         <Route path={ROUTES.settingsGeneral} element={<Settings />} />
+        <Route path={ROUTES.settingsModels} element={<ModelsSettings />} />
         <Route
           path={ROUTES.settingsDevTools}
           element={

@@ -19,3 +19,14 @@ export {
   replayAgentMessageStream,
   LANGGRAPH_ENABLED,
 } from './agent';
+
+// v0.7+ model configuration surface — re-exported so legacy
+// `import { settingsApi } from '@/api/client'` keeps compiling.
+export { settingsApi } from './settings';
+export type {
+  ProviderDTO,
+  ModelConfigDTO,
+  ProviderUpdate,
+  ModelConfigUpdate,
+  SettingsApi,
+} from './settings';

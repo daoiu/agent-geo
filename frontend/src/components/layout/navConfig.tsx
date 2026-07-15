@@ -85,6 +85,7 @@ export const navSections: NavSection[] = [
     items: [
       { to: '/settings/general', label: '通用设置' },
       { to: '/settings/notifications', label: '通知设置' },
+      { to: '/settings/models', label: '模型配置' },
     ],
   },
   // 智能助手 is mounted as a 7th entry so the TopBar launch button

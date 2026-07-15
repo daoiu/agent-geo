@@ -53,6 +53,7 @@ export const ROUTES = {
 
   settingsGeneral: '/settings/general',
   settingsNotifications: '/settings/notifications',
+  settingsModels: '/settings/models',
   settingsDevTools: '/settings/dev-tools',
 
   cost: '/cost',
@@ -167,6 +168,7 @@ export const ROUTE_META: Record<RouteKey, RouteMeta> = {
   // settings sub-pages.
   settingsGeneral: { label: '通用设置', description: '后端连通性、版本信息', parent: 'settings' },
   settingsNotifications: { label: '通知设置', parent: 'settings' },
+  settingsModels: { label: '模型配置', description: 'Provider API key / 模型 / tier / fallback', parent: 'settings' },
   settingsDevTools: { label: 'DevTools(dev)', parent: 'settingsGeneral' },
 
   // top-level.
