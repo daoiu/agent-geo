@@ -12,12 +12,17 @@
  * or the legacy react_loop schema.  The default is `false` so existing
  * callers do not break.
  */
-import type { AgentEvent, AgentSession, AgentSessionDetail } from '@/types/v0.4';
+import type { AgentSession, AgentSessionDetail } from '@/types/v0.4';
+import type { AgentEventV7 } from '@/types/v0.7';
 import { authHeaders, request } from './infra';
 
-export const LANGGRAPH_ENABLED =
-  (import.meta as unknown as { env: Record<string, string | undefined> }).env
-    .VITE_LANGGRAPH_ENABLED === 'true';
+// Read at module load; legacy callers reading `LANGGRAPH_ENABLED` keep
+// their truthy/falsey contract — the actual schema choice lives in
+// `parseSSE`'s union typing below.
+const META_ENV: Record<string, string | undefined> = (
+  import.meta as unknown as { env: Record<string, string | undefined> }
+).env;
+export const LANGGRAPH_ENABLED = META_ENV.VITE_LANGGRAPH_ENABLED === 'true';
 
 export const agentApi = {
   listAgentSessions(): Promise<AgentSession[]> {
@@ -83,7 +88,7 @@ export const agentApi = {
 // ---------------------------------------------------------------------------
 
 interface ParsedSSE {
-  events: AgentEvent[];
+  events: AgentEventV7[];
   remainder: string;
 }
 
@@ -98,8 +103,24 @@ interface ParsedSSE {
  * line-level parser is identical; downstream consumers see the variant
  * by reading `event` field.  `useAgentStream` (Task 7) does the typing.
  */
+/**
+ * parseSSE — single parser that recognises BOTH schemas (spec §6.2):
+ *
+ *   react_loop (legacy) — assistant_message / tool_call_start /
+ *     tool_call_result / human_confirmation_required / turn_complete /
+ *     max_iterations_reached / error
+ *
+ *   LangGraph (v0.7)  — llm_start / llm_token / tool_call / tool_result /
+ *     handoff / memory_injected / truncation_decision /
+ *     max_iterations_reached / turn_complete / llm_error
+ *
+ * Returns the wide `AgentEventV7` union; consumers dispatch on
+ * `evt.event`.  No runtime branching — the framework flag only steers
+ * `useLangGraphMode` for UI labeling; the wire format already coexists
+ * via union typing.
+ */
 export function parseSSE(buffer: string): ParsedSSE {
-  const events: AgentEvent[] = [];
+  const events: AgentEventV7[] = [];
   const lines = buffer.split('\n');
   let remainder = '';
   let currentEvent: string | null = null;
@@ -114,7 +135,7 @@ export function parseSSE(buffer: string): ParsedSSE {
     } else if (line === '' && currentEvent && currentData.length > 0) {
       try {
         const data = JSON.parse(currentData.join('\n'));
-        events.push({ event: currentEvent, ...data } as AgentEvent);
+        events.push({ event: currentEvent, ...data } as unknown as AgentEventV7);
       } catch {
         // ignore malformed event frames — SSE is lossy by design
       }
@@ -131,7 +152,7 @@ export function parseSSE(buffer: string): ParsedSSE {
 async function* sseGenerator(
   url: string,
   init: RequestInit,
-): AsyncGenerator<AgentEvent> {
+): AsyncGenerator<AgentEventV7> {
   const response = await fetch(url, init);
   if (!response.ok) {
     throw new Error(`SSE HTTP ${response.status}`);
@@ -155,7 +176,7 @@ async function* sseGenerator(
 export async function* sendAgentMessageStream(
   sessionId: string,
   content: string,
-): AsyncGenerator<AgentEvent> {
+): AsyncGenerator<AgentEventV7> {
   yield* sseGenerator(`/api/agent/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: authHeaders(),
@@ -167,7 +188,7 @@ export async function* confirmAgentActionStream(
   sessionId: string,
   messageId: string,
   approved: boolean,
-): AsyncGenerator<AgentEvent> {
+): AsyncGenerator<AgentEventV7> {
   yield* sseGenerator(
     `/api/agent/sessions/${sessionId}/messages/${messageId}/confirm`,
     {
@@ -181,7 +202,7 @@ export async function* confirmAgentActionStream(
 export async function* replayAgentMessageStream(
   sessionId: string,
   messageId: string,
-): AsyncGenerator<AgentEvent> {
+): AsyncGenerator<AgentEventV7> {
   yield* sseGenerator(
     `/api/agent/sessions/${sessionId}/replay/${messageId}`,
     {

@@ -25,10 +25,11 @@ import AgentWorkspace from '@/pages/AgentWorkspace';
 
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
-import { navItems } from '@/components/layout/navConfig.tsx';
+import { navItems, navSections } from '@/components/layout/navConfig.tsx';
 import { ROUTES, ROUTE_REDIRECTS } from '@/routes';
 import { CostDashboard } from '@/components/cost/CostDashboard';
 import KnowledgeSearch from '@/pages/KnowledgeSearch';
+import DevTools from '@/pages/DevTools';
 import { AgentSessionListPanel } from '@/components/layout/AgentSessionListPanel';
 import { CommandPalette, useCommandPalette } from '@/components/layout/CommandPalette';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -143,6 +144,18 @@ function crumbsFor(path: string): Crumb[] {
   return [{ label: path }];
 }
 
+function activeSectionFromPath(pathname: string): string {
+  // Spec §5.1 — match /diagnose, /knowledge/bases, /generate/tasks, etc.
+  if (pathname.startsWith('/diagnose')) return 'diagnose';
+  if (pathname.startsWith('/knowledge')) return 'knowledge';
+  if (pathname.startsWith('/generate')) return 'generate';
+  if (pathname.startsWith('/publish')) return 'publish';
+  if (pathname.startsWith('/monitor') || pathname.startsWith('/cost')) return 'monitor';
+  if (pathname.startsWith('/settings')) return 'settings';
+  if (pathname.startsWith('/agent')) return 'agent';
+  return 'diagnose';
+}
+
 function LayoutShellRouter() {
   const location = useLocation();
   const { nodes } = usePipelineState();
@@ -150,9 +163,13 @@ function LayoutShellRouter() {
   const [paletteOpen, setPaletteOpen] = useCommandPalette();
   const { theme, toggle: toggleTheme } = useDarkMode();
   const isAgentRoute = location.pathname === '/agent' || location.pathname.startsWith('/agent/');
+  const activeSection = activeSectionFromPath(location.pathname);
   return (
     <>
       <LayoutShell
+        sections={navSections}
+        activeSection={activeSection}
+        onSelectSection={() => {}}
         navItems={navItems}
         crumbs={crumbs}
         pipelineNodes={nodes}
@@ -183,6 +200,25 @@ function LayoutShellRouter() {
         <Route path={ROUTES.monitorTask} element={<MonitorDetail />} />
         <Route path={ROUTES.settingsNotifications} element={<NotificationSettings />} />
         <Route path={ROUTES.settingsGeneral} element={<Settings />} />
+        <Route
+          path={ROUTES.settingsDevTools}
+          element={
+            import.meta.env.DEV ? (
+              <DevTools />
+            ) : (
+              // Production: route exists but the dev panel tree-shakes
+              // out of the bundle (see vite.config.ts → manualChunks).
+              // A neutral 404 tile keeps the literal name out of the
+              // prod bundle's source map, satisfying the red-line grep.
+              <div className="rounded-lg border border-dashed border-border bg-bg p-12 text-center">
+                <h2 className="mb-2 text-lg font-semibold">不可用</h2>
+                <p className="text-sm text-fg-muted">
+                  本节仅在开发模式下启用,生产构建已禁用。
+                </p>
+              </div>
+            )
+          }
+        />
         {/* agent + cost remain mounted at their canonical paths only — they
             don't have legacy redirects in spec §5.3, so no alias needed. */}
         <Route path={ROUTES.agent} element={<AgentWorkspace />} />
