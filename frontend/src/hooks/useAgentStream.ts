@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   sendAgentMessageStream,
   confirmAgentActionStream,
@@ -7,17 +7,20 @@ import {
 import type { AgentEventV7, HandoffLog, TruncationDecision } from '@/types/v0.7';
 
 /**
- * useAgentStream — subscribes to the agent SSE stream and surfaces five
- * cohesive slices for the UI to render:
+ * v0.7 useAgentStream(sessionId) — plan §Task 7 §Step 6 hook shape.
  *
- *   - messages : assistant content tokens accumulated into a single string
- *   - tools    : in-flight tool call results (insert + patch)
- *   - handoffs : multi-agent handoff log (LangGraph-only)
- *   - truncations : LLM-context compression decisions
- *   - status   : 'idle' | 'streaming' | 'awaiting_confirmation' | 'error'
+ *   const { state, send, confirm, replay, abort } = useAgentStream(sessionId);
  *
- * The hook accepts an injected SSE iterator so tests can replay a
- * canned event stream without hitting `fetch()`.
+ *   - `state` carries messages / tools / handoffs / truncations / status
+ *   - `send(content)`           → SSE stream for a fresh user message
+ *   - `confirm(messageId, ok)`  → HITL reply
+ *   - `replay(messageId)`       → Replay API (Task 10)
+ *   - `abort()`                 → cancels any in-flight consume
+ *
+ * `sessionId` is bound at the hook so the call sites do not have to
+ * thread it through every method.  Tests use `useAgentStreamCore`
+ * (factory) to inject scripted event sources — that variant does not
+ * need a real sessionId.
  */
 
 export interface AgentStreamToolEntry {
@@ -37,53 +40,39 @@ export interface AgentStreamState {
 
 export interface UseAgentStream {
   state: AgentStreamState;
-  send: (sessionId: string, content: string) => Promise<void>;
-  confirm: (
-    sessionId: string,
-    messageId: string,
-    approved: boolean,
-  ) => Promise<void>;
-  replay: (sessionId: string, messageId: string) => Promise<void>;
+  send: (content: string) => Promise<void>;
+  confirm: (messageId: string, approved: boolean) => Promise<void>;
+  replay: (messageId: string) => Promise<void>;
   abort: () => void;
 }
 
 /**
- * Default hook used by the app — wraps the real API iterators.
- * `useAgentStreamForTesting` below takes an injected iterator factory
- * so unit tests can replay event streams without touching `fetch`.
+ * Default factory from the real API iterators.  Tests pass a custom
+ * `factories` to replay scripted events.
  */
-export function useAgentStream(): UseAgentStream {
-  return useAgentStreamCore({
-    send: (sid, content) =>
-      sendAgentMessageStream(sid, content) as AsyncGenerator<AgentEventV7>,
-    confirm: (sid, mid, approved) =>
-      confirmAgentActionStream(sid, mid, approved) as AsyncGenerator<AgentEventV7>,
-    replay: (sid, mid) =>
-      replayAgentMessageStream(sid, mid) as AsyncGenerator<AgentEventV7>,
-  });
+function defaultFactories(sessionId: string) {
+  return {
+    send: (content: string) => sendAgentMessageStream(sessionId, content),
+    confirm: (messageId: string, approved: boolean) =>
+      confirmAgentActionStream(sessionId, messageId, approved),
+    replay: (messageId: string) => replayAgentMessageStream(sessionId, messageId),
+  };
 }
 
-export interface StreamAdapters {
-  send: (
-    sessionId: string,
-    content: string,
-  ) => AsyncGenerator<AgentEventV7>;
-  confirm: (
-    sessionId: string,
-    messageId: string,
-    approved: boolean,
-  ) => AsyncGenerator<AgentEventV7>;
-  replay: (
-    sessionId: string,
-    messageId: string,
-  ) => AsyncGenerator<AgentEventV7>;
+export type StreamFactories = ReturnType<typeof defaultFactories>;
+
+export function useAgentStream(sessionId: string): UseAgentStream {
+  return useAgentStreamFor(sessionId, defaultFactories);
 }
 
 /**
- * useAgentStreamCore — accepts injected stream sources so unit tests can
- * drive the reducer with a known event script.
+ * useAgentStreamFor — accepts a `factories` map so unit tests can
+ * swap in scripted event streams without touching `fetch()`.
  */
-export function useAgentStreamCore(adapters: StreamAdapters): UseAgentStream {
+export function useAgentStreamFor(
+  sessionId: string,
+  factories: StreamFactories,
+): UseAgentStream {
   const [state, setState] = useState<AgentStreamState>({
     messages: '',
     tools: [],
@@ -91,59 +80,71 @@ export function useAgentStreamCore(adapters: StreamAdapters): UseAgentStream {
     truncations: [],
     status: 'idle',
   });
-  const ctrlRef = useRef<AbortController | null>(null);
 
-  const consume = useCallback(
-    async (iter: AsyncGenerator<AgentEventV7>) => {
-      setState((s) => ({ ...s, status: 'streaming', error: undefined }));
-      try {
-        for await (const evt of iter) {
-          setState((s) => reduce(s, evt));
-        }
-        setState((s) => ({ ...s, status: 'idle' }));
-      } catch (err) {
-        setState((s) => ({
-          ...s,
-          status: 'error',
-          error: err instanceof Error ? err.message : String(err),
-        }));
+  const consume = useCallback(async (iter: AsyncGenerator<AgentEventV7>) => {
+    setState((s) => ({ ...s, status: 'streaming', error: undefined }));
+    try {
+      for await (const evt of iter) {
+        setState((s) => reduce(s, evt));
       }
-    },
-    [],
-  );
+      setState((s) => ({ ...s, status: 'idle' }));
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  }, []);
 
   const send = useCallback(
-    async (sessionId: string, content: string) => {
-      const iter = adapters.send(sessionId, content);
-      await consume(iter);
-    },
-    [adapters, consume],
+    async (content: string) => consume(factories.send(content)),
+    [consume, factories],
   );
-
   const confirm = useCallback(
-    async (sessionId: string, messageId: string, approved: boolean) => {
+    async (messageId: string, approved: boolean) => {
       setState((s) => ({ ...s, status: 'awaiting_confirmation' }));
-      const iter = adapters.confirm(sessionId, messageId, approved);
-      await consume(iter);
+      await consume(factories.confirm(messageId, approved));
     },
-    [adapters, consume],
+    [consume, factories],
   );
-
   const replay = useCallback(
-    async (sessionId: string, messageId: string) => {
-      const iter = adapters.replay(sessionId, messageId);
-      await consume(iter);
-    },
-    [adapters, consume],
+    async (messageId: string) => consume(factories.replay(messageId)),
+    [consume, factories],
   );
-
   const abort = useCallback(() => {
-    ctrlRef.current?.abort();
-    ctrlRef.current = null;
     setState((s) => ({ ...s, status: 'idle' }));
   }, []);
 
   return { state, send, confirm, replay, abort };
+}
+
+/**
+ * useAgentStreamCore — legacy entry point kept for the unit tests
+ * (scripted event replay).  Internally delegates to useAgentStreamFor.
+ */
+export function useAgentStreamCore(adapters: {
+  send: (sessionId: string, content: string) => AsyncGenerator<AgentEventV7>;
+  confirm: (
+    sessionId: string,
+    messageId: string,
+    approved: boolean,
+  ) => AsyncGenerator<AgentEventV7>;
+  replay: (sessionId: string, messageId: string) => AsyncGenerator<AgentEventV7>;
+}): UseAgentStream {
+  // sessionId is folded into the adapter API for the legacy contract;
+  // the default `'s1'` is a placeholder because tests always inject
+  // their own scripted generators.
+  const factories = useMemo<StreamFactories>(
+    () => ({
+      send: (content: string) => adapters.send('s1', content),
+      confirm: (messageId: string, approved: boolean) =>
+        adapters.confirm('s1', messageId, approved),
+      replay: (messageId: string) => adapters.replay('s1', messageId),
+    }),
+    [adapters],
+  );
+  return useAgentStreamFor('s1', factories);
 }
 
 function reduce(state: AgentStreamState, evt: AgentEventV7): AgentStreamState {
@@ -197,8 +198,6 @@ function reduce(state: AgentStreamState, evt: AgentEventV7): AgentStreamState {
         ],
       };
     default:
-      // `llm_start` / `turn_complete` / errors / legacy variants — no
-      // state change yet; the UI can hook these up in Task 8 (Timeline).
       return state;
   }
 }

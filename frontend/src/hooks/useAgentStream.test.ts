@@ -1,19 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { useAgentStreamCore, type StreamAdapters } from './useAgentStream';
+import { useAgentStreamFor, type StreamFactories } from './useAgentStream';
 import type { AgentEventV7 } from '@/types/v0.7';
 
 /**
  * useAgentStream is consumed by AgentWorkspace (红线 1) and TimelineRail
- * (Task 8).  These tests exercise the reducer via `useAgentStreamCore`
- * and a fake adapter that replays a known event sequence.
+ * (Task 8).  These tests exercise the reducer via `useAgentStreamFor`
+ * with injected `StreamFactories` so a known event sequence can be
+ * replayed without touching `fetch()`.
  */
 
 async function* scripted(events: AgentEventV7[]): AsyncGenerator<AgentEventV7> {
   for (const e of events) yield e;
 }
 
-function makeAdapters(events: AgentEventV7[]): StreamAdapters {
+function makeFactories(events: AgentEventV7[]): StreamFactories {
   return {
     send: () => scripted(events),
     confirm: () => scripted(events),
@@ -21,18 +22,19 @@ function makeAdapters(events: AgentEventV7[]): StreamAdapters {
   };
 }
 
-describe('useAgentStreamCore', () => {
+describe('useAgentStreamFor (sessionId-bound)', () => {
   it('accumulates llm_token deltas into state.messages', async () => {
     const { result } = renderHook(() =>
-      useAgentStreamCore(
-        makeAdapters([
+      useAgentStreamFor(
+        's1',
+        makeFactories([
           { event: 'llm_token', delta: 'Hel' },
           { event: 'llm_token', delta: 'lo' },
         ]),
       ),
     );
     await act(async () => {
-      await result.current.send('s1', 'hi');
+      await result.current.send('hi');
     });
     expect(result.current.state.messages).toBe('Hello');
     expect(result.current.state.status).toBe('idle');
@@ -48,9 +50,9 @@ describe('useAgentStreamCore', () => {
         timestamp: 1,
       },
     ];
-    const { result } = renderHook(() => useAgentStreamCore(makeAdapters(events)));
+    const { result } = renderHook(() => useAgentStreamFor('s1', makeFactories(events)));
     await act(async () => {
-      await result.current.send('s1', 'help');
+      await result.current.send('help');
     });
     expect(result.current.state.handoffs).toHaveLength(1);
     expect(result.current.state.handoffs[0].fromAgent).toBe('main');
@@ -61,9 +63,9 @@ describe('useAgentStreamCore', () => {
     const events: AgentEventV7[] = [
       { event: 'truncation_decision', strategy: 'drop', saved_tokens: 400 },
     ];
-    const { result } = renderHook(() => useAgentStreamCore(makeAdapters(events)));
+    const { result } = renderHook(() => useAgentStreamFor('s1', makeFactories(events)));
     await act(async () => {
-      await result.current.send('s1', 'help');
+      await result.current.send('help');
     });
     expect(result.current.state.truncations).toHaveLength(1);
     expect(result.current.state.truncations[0].strategy).toBe('drop');
@@ -76,14 +78,14 @@ describe('useAgentStreamCore', () => {
       throw new Error('connection lost');
     }
     const { result } = renderHook(() =>
-      useAgentStreamCore({
+      useAgentStreamFor('s1', {
         send: () => failing(),
         confirm: () => failing(),
         replay: () => failing(),
       }),
     );
     await act(async () => {
-      await result.current.send('s1', 'hi');
+      await result.current.send('hi');
     });
     expect(result.current.state.status).toBe('error');
     expect(result.current.state.error).toBe('connection lost');

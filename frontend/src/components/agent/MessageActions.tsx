@@ -18,34 +18,18 @@ export interface MessageActionsProps {
   sessionId: string;
   messageId: string;
   /** Whether this message is the latest replay checkpoint (spec §6.3). */
-  isCheckpoint: boolean;
+  atCheckpoint: boolean;
   /** Triggered when the user confirms the Replay action. */
   onReplay: (messageId: string) => void;
-  /** Optional future extensibility hook (copy/quote/retry). */
-  onCopy?: (messageId: string) => void;
 }
 
 export function MessageActions({
   messageId,
-  isCheckpoint,
+  atCheckpoint,
   onReplay,
-  onCopy,
 }: MessageActionsProps) {
   const [open, setOpen] = useState(false);
-  if (!isCheckpoint && !onCopy) return null;
-  if (!isCheckpoint) {
-    // We still allow copy-only for non-checkpoints.
-    return (
-      <button
-        type="button"
-        onClick={() => onCopy?.(messageId)}
-        className="rounded-md border border-border bg-card p-1 text-xs text-fg-muted hover:bg-primary-tint hover:text-primary"
-        aria-label="复制"
-      >
-        ⧉
-      </button>
-    );
-  }
+  if (!atCheckpoint) return null;
 
   return (
     <div className="relative inline-block">

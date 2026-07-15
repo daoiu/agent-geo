@@ -19,8 +19,6 @@ export interface KnowledgeChunkGridProps {
   className?: string;
 }
 
-const COLUMN_CLASS = 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
-
 export function KnowledgeChunkGrid({ result, className }: KnowledgeChunkGridProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const ROW_HEIGHT = 200; // px — approximate chunk card height
@@ -90,10 +88,6 @@ export function KnowledgeChunkGrid({ result, className }: KnowledgeChunkGridProp
           跨库检索没有命中,可以换一个更具体的问题试试。
         </p>
       )}
-      {/* Hint: Column helper class is not actually used because we're
-          virtualising rows of 1 chunk; the helper is exported for
-          non-virtualised lists in the same module. */}
-      <span className={cn('hidden', COLUMN_CLASS)} aria-hidden="true" />
     </div>
   );
 }

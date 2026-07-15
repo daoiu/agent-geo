@@ -1,11 +1,13 @@
 /**
- * v0.7 client.ts — thin compatibility shim.
+ * v0.7 client.ts — backward-compatibility re-export shim.
  *
- * The bottom of the request stack now lives in `./infra.ts` (avoids the
- * circular import that would otherwise form between `./index.ts` and
- * this file).  This file re-exports the public surface unchanged so
- * call sites that still import from `@/api/client` keep working —
- * new code should prefer `@/api` (the barrel).
+ * The actual request / error / auth-headers logic lives in `./infra`.
+ * The composed `api.*` namespace lives in `./index`.  This file only
+ * re-exports the union of those surfaces so legacy imports such as
+ *   `import { api, ApiError } from '@/api/client'`
+ * keep compiling during the v0.6 → v0.7 migration window.
+ *
+ * New code should prefer `import from '@/api'` (the barrel).
  */
 export { request, ApiError, authHeaders, BASE } from './infra';
 export type { RequestOptions } from './types';

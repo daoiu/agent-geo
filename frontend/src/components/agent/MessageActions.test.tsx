@@ -3,24 +3,24 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MessageActions } from './MessageActions';
 
 describe('MessageActions', () => {
-  it('renders nothing when isCheckpoint is false (legacy messages)', () => {
+  it('renders nothing when atCheckpoint is false (legacy messages)', () => {
     const { container } = render(
       <MessageActions
         sessionId="s1"
         messageId="m1"
-        isCheckpoint={false}
+        atCheckpoint={false}
         onReplay={vi.fn()}
       />,
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it('shows a kebab trigger when isCheckpoint is true', () => {
+  it('shows a kebab trigger when atCheckpoint is true', () => {
     render(
       <MessageActions
         sessionId="s1"
         messageId="m-ckpt-42"
-        isCheckpoint
+        atCheckpoint
         onReplay={vi.fn()}
       />,
     );
@@ -33,7 +33,7 @@ describe('MessageActions', () => {
       <MessageActions
         sessionId="s1"
         messageId="m-ckpt-42"
-        isCheckpoint
+        atCheckpoint
         onReplay={onReplay}
       />,
     );

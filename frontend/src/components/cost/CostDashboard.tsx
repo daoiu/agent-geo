@@ -46,20 +46,35 @@ function monthsBack(n: number): { from: string; to: string } {
   return { from: fmt(from), to: fmt(to) };
 }
 
-function csvEscape(v: string | number): string {
-  const s = String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
+/**
+ * CSV shape — one row per (month × item), with an explicit `type`
+ * column so downstream scripts don't have to rely on which side
+ * (provider vs model) is empty.
+ */
+type CsvItemType = 'provider' | 'model';
+const CSV_HEADERS = ['month', 'type', 'name', 'cost'] as const;
+
+function csvCell(value: string | number): string {
+  const s = String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 function csvOf(data: CostByMonth): string {
-  const rows: string[] = ['month,provider,model,cost'];
+  const rows: string[] = [CSV_HEADERS.join(',')];
   for (const m of data.months) {
     for (const p of m.byProvider) {
-      rows.push(`${csvEscape(m.month)},${csvEscape(p.provider)},,${csvEscape(p.cost.toFixed(4))}`);
+      rows.push(
+        [m.month, 'provider' as CsvItemType, p.provider, p.cost.toFixed(4)]
+          .map(csvCell)
+          .join(','),
+      );
     }
     for (const mm of m.byModel) {
-      rows.push(`${csvEscape(m.month)},,${csvEscape(mm.model)},${csvEscape(mm.cost.toFixed(4))}`);
+      rows.push(
+        [m.month, 'model' as CsvItemType, mm.model, mm.cost.toFixed(4)]
+          .map(csvCell)
+          .join(','),
+      );
     }
   }
   return rows.join('\n');
