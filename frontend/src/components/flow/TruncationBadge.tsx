@@ -10,13 +10,13 @@
  * The `savedTokens` count is shown as "节省 N.Nk tokens" with one decimal of
  * precision, except `noop` which shows "压缩无需" alone.
  *
- * NOTE: `TruncationStrategy` is duplicated locally until `src/types/v0.7.ts`
- * lands in Task 7 — at that point this component will be updated to import
- * from the shared types module. Tests cover the four-strategy surface API and
- * are stable across that move.
+ * `TruncationStrategy` lives in `@/types/v0.7`; re-exported here so the
+ * existing surface API (`./TruncationBadge` + its tests) stays stable.
  */
 
-export type TruncationStrategy = 'noop' | 'truncate' | 'drop' | 'summarize';
+import type { TruncationStrategy as TruncationStrategyType } from '@/types/v0.7';
+
+export type TruncationStrategy = TruncationStrategyType;
 
 const LABELS: Record<TruncationStrategy, string> = {
   noop: '压缩无需',
