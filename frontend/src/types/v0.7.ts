@@ -143,3 +143,14 @@ export interface AgentSessionDetailV7 extends AgentSessionDetail {
   handoff_logs?: HandoffLog[];
   memory_snapshot?: MemorySnapshot;
 }
+
+// ---------------------------------------------------------------------------
+// Runtime sentinel (v0.7.1 hardening)
+// ---------------------------------------------------------------------------
+//
+// TS-only `interface` declarations are erased at runtime, so a missing
+// types/v0.7.ts file does not produce a `module not found` error during
+// vitest.  This constant is exported so the accompanying test file can
+// assert the module is actually loadable — closing the TDD red→green loop.
+
+export const v0_7_RUNTIME_SENTINEL = 'geo2.v0.7' as const;

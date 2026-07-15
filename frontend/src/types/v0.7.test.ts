@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import type {
-  HandoffLog,
-  MemorySnapshot,
-  MemoryEntry,
-  TruncationDecision,
-  CostByMonth,
-  FaultConfig,
-  AgentEventV7,
+import {
+  v0_7_RUNTIME_SENTINEL,
+  type HandoffLog,
+  type MemorySnapshot,
+  type MemoryEntry,
+  type TruncationDecision,
+  type CostByMonth,
+  type FaultConfig,
+  type AgentEventV7,
 } from './v0.7';
 
 /**
@@ -110,5 +111,13 @@ describe('v0.7 types', () => {
       saved_tokens: 100,
     };
     expect(td.event).toBe('truncation_decision');
+  });
+
+  it('v0_7_RUNTIME_SENTINEL proves the module is loadable at runtime', () => {
+    // Closes the TDD red→green loop for the case where `./v0.7` is
+    // accidentally deleted or stubbed-out: this assertion fails at
+    // runtime, vitest reports a transform/import error rather than a
+    // silent green run.
+    expect(v0_7_RUNTIME_SENTINEL).toBe('geo2.v0.7');
   });
 });
