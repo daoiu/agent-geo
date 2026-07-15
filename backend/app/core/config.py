@@ -287,13 +287,16 @@ _DEFAULT_MODEL_CONFIG_STORE: "ModelConfigStore | None" = None
 
 
 def get_default_model_config_store() -> "ModelConfigStore":
-    """获取默认 ModelConfigStore 单例（路径 data/model_config.json）。"""
+    """获取默认 ModelConfigStore 单例（路径 data/model_config.json）。
+
+    路径基于 cwd + data/：测试用 monkeypatch.chdir 切到 tmp_path 自动隔离。
+    """
     global _DEFAULT_MODEL_CONFIG_STORE
     if _DEFAULT_MODEL_CONFIG_STORE is None:
         from app.core.model_config_store import ModelConfigStore
 
         settings_for_path = Settings()
-        data_dir = Path(settings_for_path.database_url.replace("sqlite+aiosqlite:///", "")).parent
+        data_dir = Path.cwd() / "data"
         _DEFAULT_MODEL_CONFIG_STORE = ModelConfigStore(
             path=data_dir / "model_config.json",
             encryption_key=settings_for_path.encryption_key or "",
