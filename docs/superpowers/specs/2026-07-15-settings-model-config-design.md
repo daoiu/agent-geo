@@ -166,10 +166,12 @@
   "tiers": { "cheap": "deepseek", "standard": "deepseek", "premium": "deepseek" },
   "fallback_chain": ["deepseek", "kimi"],
   "llm_providers": ["deepseek"],
-  "source": "json+env",
+  "source": "json",
   "updated_at": "2026-07-15T12:00:00+00:00"
 }
 ```
+
+> `source` 字段取值:`"env"` 表示当前 Settings 完全来自 `.env`(无 JSON 覆盖);`"json"` 表示已存在 `data/model_config.json` 且至少有一个字段覆盖 .env。
 
 **PATCH 请求 payload**:
 
@@ -201,6 +203,7 @@
 | provider 的 `base_url` 必须是 http(s) URL | 422 `code=invalid_base_url` |
 | provider 的 `model` 非空字符串 | 422 `code=empty_model` |
 | `encryption_key` 为空字符串时尝试保存非空 api_key | 422 `code=encryption_key_missing` |
+| 进程内并发 PATCH(双击保存导致 RLock 排队后 stale payload) | 409 `code=concurrent_update` |
 
 ---
 
