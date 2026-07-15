@@ -28,6 +28,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { navItems } from '@/components/layout/navConfig.tsx';
 import { ROUTES, ROUTE_REDIRECTS } from '@/routes';
 import { CostDashboard } from '@/components/cost/CostDashboard';
+import KnowledgeSearch from '@/pages/KnowledgeSearch';
 import { AgentSessionListPanel } from '@/components/layout/AgentSessionListPanel';
 import { CommandPalette, useCommandPalette } from '@/components/layout/CommandPalette';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -169,6 +170,7 @@ function LayoutShellRouter() {
         <Route path={ROUTES.diagnoseReport} element={<ReportView />} />
         <Route path={ROUTES.knowledge} element={<KnowledgeList />} />
         <Route path={ROUTES.knowledgeDetail} element={<KnowledgeDetail />} />
+        <Route path={ROUTES.knowledgeSearch} element={<KnowledgeSearch />} />
         <Route path={ROUTES.generateTasks} element={<TaskList />} />
         <Route path={ROUTES.generateTaskNew} element={<NewTask />} />
         <Route path={ROUTES.generateTask} element={<TaskDetail />} />
