@@ -27,6 +27,7 @@ import {
   replayAgentMessageStream,
   LANGGRAPH_ENABLED,
 } from './agent';
+import { handoffApi } from './handoff';
 
 export {
   parseSSE,
@@ -43,6 +44,7 @@ export {
   publishApi,
   monitorApi,
   agentApi,
+  handoffApi,
 };
 
 /**
@@ -58,4 +60,5 @@ export const api = {
   ...publishApi,
   ...monitorApi,
   ...agentApi,
+  ...handoffApi,
 };
