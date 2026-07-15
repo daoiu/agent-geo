@@ -181,8 +181,10 @@ describe('ReviewArticle — title / copy / download', () => {
     await user.click(screen.getByRole('button', { name: /下载/ }));
 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
-    const blob = createObjectURL.mock.calls[0][0] as Blob;
-    expect(blob.type).toContain('text/markdown');
+    const blob = (createObjectURL.mock as unknown as {
+      calls: Blob[][];
+    }).calls[0]?.[0];
+    expect(blob?.type).toContain('text/markdown');
     expect(clickSpy).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalled();
 

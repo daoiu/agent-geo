@@ -30,13 +30,14 @@ describe('deviceId', () => {
 
   it('returns empty string when window is undefined (SSR safety)', () => {
     const originalWindow = globalThis.window;
-    // @ts-expect-error — deliberately removing window for SSR test
+    // The type assertions below make the `@ts-expect-error` directives
+    // unnecessary on the current TypeScript config; if a stricter tsconfig
+    // re-enables them, just uncomment the directives.
     delete (globalThis as { window?: Window }).window;
     try {
       const id = getDeviceId();
       expect(id).toBe('');
     } finally {
-      // @ts-expect-error — restoring for other tests
       globalThis.window = originalWindow;
     }
   });
