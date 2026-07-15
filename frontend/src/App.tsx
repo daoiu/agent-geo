@@ -22,6 +22,7 @@ import MonitorDetail from '@/pages/MonitorDetail';
 import NewMonitor from '@/pages/NewMonitor';
 import NotificationSettings from '@/pages/NotificationSettings';
 import AgentWorkspace from '@/pages/AgentWorkspace';
+import ModelsSettings from '@/pages/ModelsSettings';
 
 import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
@@ -122,6 +123,11 @@ function crumbsFor(path: string): Crumb[] {
         description: '后端连通性、版本信息与各模块入口。变更类操作请前往对应模块页。',
       },
     ];
+  if (path === '/settings/models')
+    return [
+      { label: '设置', to: '/settings' },
+      { label: '模型配置', description: 'Provider API key / 模型 / tier / fallback。' },
+    ];
   return [{ label: path }];
 }
 
@@ -166,6 +172,7 @@ function LayoutShellRouter() {
         <Route path="/agent/:sessionId" element={<AgentWorkspace />} />
         {/* Real settings page — see Settings.tsx */}
         <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/models" element={<ModelsSettings />} />
         {/* Catch-all */}
         <Route
           path="*"

@@ -56,5 +56,12 @@ export const navItems: NavItem[] = [
       { key: 'mon-notif', label: '阈值通知', to: '/notifications' },
     ],
   },
-  { key: 'settings', label: '⚙️ 设置', to: '/settings' },
+  {
+    key: 'settings',
+    label: '⚙️ 设置',
+    to: '/settings',
+    children: [
+      { key: 'settings-models', label: '模型配置', to: '/settings/models' },
+    ],
+  },
 ];
