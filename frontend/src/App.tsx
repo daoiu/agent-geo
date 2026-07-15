@@ -27,6 +27,7 @@ import { LayoutShell } from '@/components/layout/LayoutShell';
 import { Toaster } from '@/components/ui/sonner';
 import { navItems } from '@/components/layout/navConfig.tsx';
 import { ROUTES, ROUTE_REDIRECTS } from '@/routes';
+import { CostDashboard } from '@/components/cost/CostDashboard';
 import { AgentSessionListPanel } from '@/components/layout/AgentSessionListPanel';
 import { CommandPalette, useCommandPalette } from '@/components/layout/CommandPalette';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -184,15 +185,7 @@ function LayoutShellRouter() {
             don't have legacy redirects in spec §5.3, so no alias needed. */}
         <Route path={ROUTES.agent} element={<AgentWorkspace />} />
         <Route path={ROUTES.agentSession} element={<AgentWorkspace />} />
-        <Route path={ROUTES.cost} element={
-          // Cost page (Task 12) — until then surface a "coming in v0.7" tile.
-          <div className="rounded-lg border border-dashed border-border bg-bg p-12 text-center">
-            <h2 className="mb-2 text-lg font-semibold">月度成本</h2>
-            <p className="text-sm text-fg-muted">
-              Task 12 (recharts dashboard) will wire recharts data here.
-            </p>
-          </div>
-        } />
+        <Route path={ROUTES.cost} element={<CostDashboard />} />
 
         {/* v0.6 legacy URL compatibility — 19 redirects to the v0.7 IA */}
         {Object.entries(ROUTE_REDIRECTS).map(([from, to]) => (

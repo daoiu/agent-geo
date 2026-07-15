@@ -28,6 +28,7 @@ import {
   LANGGRAPH_ENABLED,
 } from './agent';
 import { handoffApi } from './handoff';
+import { costApi } from './cost';
 
 export {
   parseSSE,
@@ -45,6 +46,7 @@ export {
   monitorApi,
   agentApi,
   handoffApi,
+  costApi,
 };
 
 /**
@@ -61,4 +63,5 @@ export const api = {
   ...monitorApi,
   ...agentApi,
   ...handoffApi,
+  ...costApi,
 };
