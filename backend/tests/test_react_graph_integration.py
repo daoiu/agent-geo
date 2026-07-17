@@ -35,8 +35,18 @@ def test_build_react_graph_returns_compiled_graph():
 
 
 @pytest.mark.asyncio
-async def test_react_graph_ainvoke_with_simple_message(monkeypatch):
-    """Stub LLM 返回纯文本,react_graph 单步完成 → output 含至少一条 AIMessage。"""
+async def test_react_graph_ainvoke_with_simple_message(monkeypatch, db_session):
+    """Stub LLM 返回纯文本,react_graph 单步完成 → output 含至少一条 AIMessage。
+
+    T2:agent 节点落库(assistant),需要在 agent_sessions 表先建 session,
+    否则 agent_messages.session_id 外键约束失败。
+    """
+    from app.repositories.agent_repo import AgentRepository
+
+    repo = AgentRepository(db_session)
+    session = await repo.create_session(title="T")
+    sid = session.id
+
     import app.domain.agent.react_graph as rg
     import app.domain.agent.langgraph_nodes.policy as policy_mod
 
@@ -52,12 +62,12 @@ async def test_react_graph_ainvoke_with_simple_message(monkeypatch):
     out = await rg.build_react_graph().ainvoke(
         {
             "messages": [HumanMessage(content="hi")],
-            "session_id": "test-graph-1",
+            "session_id": sid,
             "memory_chunk": None,
             "truncation_result": None,
             "tool_call_log": [],
         },
-        config={"configurable": {"thread_id": "test-graph-1"}},
+        config={"configurable": {"thread_id": sid}},
     )
     msgs = out["messages"]
     assert len(msgs) >= 1

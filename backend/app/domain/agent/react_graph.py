@@ -31,6 +31,11 @@ from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.domain.agent.state import AgentState
 from app.domain.agent.tools import TOOLS
 
+# T2 — DB 持久化:与 react_loop 等价,assistant / tool 消息在节点产出后立即落库。
+# 测试通过 monkeypatch 替换 AgentRepository / get_session_factory。
+from app.core.db import get_session_factory
+from app.repositories.agent_repo import AgentRepository
+
 
 def _to_dict_messages(messages: list) -> list[dict]:
     """LangChain BaseMessage / dict → dict-style(messages list 给 LLMClient)。"""
@@ -75,7 +80,10 @@ def _has_tool_calls(state: TypedDict) -> bool:
 
 
 async def _agent_node(state: AgentState, runtime) -> dict:
-    """react_graph 主循环 agent 节点:调 LLMClient,返回 AIMessage。"""
+    """react_graph 主循环 agent 节点:调 LLMClient,返回 AIMessage。
+
+    T2:同时把 assistant 消息落库,与 react_loop 路径等价。
+    """
     dict_msgs = _to_dict_messages(state["messages"])
     tools_for_llm = TOOLS
 
@@ -85,6 +93,36 @@ async def _agent_node(state: AgentState, runtime) -> dict:
     content = direct_result.get("content")
     tool_calls = direct_result.get("tool_calls")
     ai = AIMessage(content=content or "", tool_calls=tool_calls or [])
+
+    # T2 持久化:与 react_loop._drive_react_loop 相同格式
+    tc_for_db = None
+    if tool_calls:
+        import json as _json
+        tc_for_db = [
+            {
+                "id": tc["id"] if isinstance(tc, dict) else tc.id,
+                "function": {
+                    "name": tc["name"] if isinstance(tc, dict) else tc["name"],
+                    "arguments": _json.dumps(
+                        tc["args"] if isinstance(tc, dict) else tc.args,
+                        ensure_ascii=False,
+                    )
+                    if isinstance(
+                        (tc["args"] if isinstance(tc, dict) else tc.args), dict
+                    )
+                    else (tc["args"] if isinstance(tc, dict) else tc.args),
+                },
+            }
+            for tc in tool_calls
+        ]
+    async with get_session_factory()() as session:
+        await AgentRepository(session).create_message(
+            session_id=state.get("session_id", ""),
+            role="assistant",
+            content=content,
+            tool_calls=tc_for_db,
+        )
+
     return {"messages": [ai]}
 
 
@@ -133,6 +171,8 @@ async def _tool_node(state: AgentState, runtime) -> dict:
 
     HITL: HumanConfirmationRequired 通过 `interrupt(payload)` 在 tool_node 内拦截;
     LangGraph 已在 `interrupt_before=["tools"]` 时持久化 state。
+
+    T2:每个 tool 消息返回前落库,与 react_loop 路径等价。
     """
     from app.domain.agent.tool_executor import ToolExecutor
     import uuid
@@ -158,6 +198,14 @@ async def _tool_node(state: AgentState, runtime) -> dict:
         except Exception as exc:  # noqa: BLE001
             tool_msg = ToolMessage(
                 content=f"tool error: {exc!r}",
+                tool_call_id=tc_id,
+            )
+        # T2 持久化:与 react_loop 路径相同,落库 role="tool" + 真实 tool_call_id
+        async with get_session_factory()() as session:
+            await AgentRepository(session).create_message(
+                session_id=state.get("session_id", ""),
+                role="tool",
+                content=str(tool_msg.content),
                 tool_call_id=tc_id,
             )
         out_messages.append(tool_msg)
