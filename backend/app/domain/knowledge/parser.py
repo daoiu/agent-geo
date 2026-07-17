@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import functools
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
@@ -13,6 +14,10 @@ from pypdf.errors import PdfReadError
 
 from app.domain.exceptions import DocumentParseError
 from app.services.multimodal.image_describe import describe_image
+
+_IMG_DATA_URI_RE = re.compile(
+    r"!\[([^\]]*)\]\(data:(image/[\w.+-]+);base64,([A-Za-z0-9+/=]+)\)"
+)
 
 T = TypeVar("T")
 
@@ -65,8 +70,22 @@ def parse_txt(path: str) -> str:
 
 @_handle_parse_errors
 def parse_md(path: str) -> str:
-    """Parse a Markdown file. Preserves Markdown syntax for LLM consumption."""
-    return _read_text_file(path)
+    """Parse a Markdown file. Preserves Markdown syntax for LLM consumption.
+
+    base64 data-uri 图片 → 替换为 OCR+VLM 描述 / 占位 [图片：<alt>]。
+    """
+    return _replace_md_images(_read_text_file(path))
+
+
+def _replace_md_images(md_text: str) -> str:
+    def _sub(m: re.Match[str]) -> str:
+        alt, mime, b64 = m.group(1), m.group(2), m.group(3)
+        try:
+            return describe_image(b64, mime, alt)
+        except Exception:  # noqa: BLE001
+            return f"[图片：{alt}]" if alt else "[图片]"
+
+    return _IMG_DATA_URI_RE.sub(_sub, md_text)
 
 
 @_handle_parse_errors
