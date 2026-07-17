@@ -148,9 +148,9 @@ class Settings(BaseSettings):
     # 主 provider 失败切下一个。逗号分隔 provider 名。
     fallback_chain: str = "deepseek,kimi"
 
-    # v0.8 — LangGraph 主循环开关（spec 2026-07-14-langgraph-react-loop §10.2）
-    # 默认 False 沿用 react_loop.py，生产切流走 env LANGGRAPH_ENABLED=true
-    langgraph_enabled: bool = False
+    # v0.8 — LangGraph 主循环开关(spec 2026-07-14-langgraph-react-loop §10.2)
+    # 已删除:2026-07-17 plan Task 8 LangGraph 成为唯一 agent 路径,flag 不再需要。
+    # 单一路径:LangGraph(默认)/ Orchestrator(②b 灰度 agent_orchestrator_enabled)。
 
     # ②b Agent 编排层（spec agent-orchestrator §6.2.1）
     # 默认 False 沿用 ②a 统一图，开启后 router + reflection + plan-execute 接管

@@ -15,9 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import device_id_header
 from app.api.diagnosis import get_session
 from app.domain.agent.dispatch import run_agent_turn
-from app.domain.agent.react_loop import (  # noqa: F401  (Task 14 前保留)
-    run_agent_turn_from_checkpoint,
-)
+from app.domain.agent.langgraph_nodes.resume import resume_from_checkpoint
 from app.repositories.agent_repo import AgentRepository
 
 
@@ -45,7 +43,7 @@ async def run_replay(
 
     # 复用 from_checkpoint(支持任意 message_id,不仅 pending)
     # 该函数已具备完整的 SSE event 输出能力
-    async for event in run_agent_turn_from_checkpoint(
+    async for event in resume_from_checkpoint(
         session_id, message_id, device_id=device_id
     ):
         yield event
@@ -155,7 +153,7 @@ async def confirm_action(
     await repo.confirm_message(message_id, approved=True)
 
     async def event_generator() -> AsyncIterator[str]:
-        async for event in run_agent_turn_from_checkpoint(
+        async for event in resume_from_checkpoint(
             session_id, message_id, device_id=device_id
         ):
             event_name = event.pop("event")
@@ -190,7 +188,7 @@ async def replay_turn(
 
     流格式:先 yield `replay_start` 标记,然后调 from_checkpoint 输出完整事件流。
     """
-    from app.domain.agent.react_loop import run_agent_turn_from_checkpoint
+    from app.domain.agent.langgraph_nodes.resume import resume_from_checkpoint
 
     repo = AgentRepository(session)
     msg = await repo.get_message(message_id)
@@ -207,7 +205,7 @@ async def replay_turn(
             f"event: replay_start\n"
             f"data: {json.dumps({'message_id': message_id, 'session_id': session_id}, ensure_ascii=False)}\n\n"
         )
-        async for event in run_agent_turn_from_checkpoint(
+        async for event in resume_from_checkpoint(
             session_id, message_id, device_id=device_id
         ):
             event_name = event.pop("event")

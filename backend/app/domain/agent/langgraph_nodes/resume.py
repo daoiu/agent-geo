@@ -7,7 +7,7 @@ react_graph 路径:LangGraph 自带 interrupt / resume 机制 — tool 节点抛
 HumanConfirmation → interrupt(payload) → LangGraph 持久化 checkpoint → 前端
 确认 → resume_from_checkpoint(session_id, checkpoint_message_id) 用
 Command(resume=user_decision) + graph.astream_events 续跑,LangGraph 自动
-从 interrupt 处恢复,经 SSEBridge._dispatch 输出 SSE 字节。
+从 interrupt 处恢复,经 SSEBridge._dispatch 输出 SSE dict。
 
 校验逻辑(沿用 react_loop L596-417 的契约):
 - checkpoint_message_id 不存在 / 不属于 session_id / 已 resolved → yield error 事件退出
@@ -29,9 +29,9 @@ from app.repositories.agent_repo import AgentRepository
 logger = structlog.get_logger()
 
 
-def _emit(event_type: str, data: dict) -> bytes:
-    payload = {"event": event_type, **data}
-    return (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+def _emit(event_type: str, data: dict) -> dict:
+    """react_loop 等价 dict 形式(agent_chat 用 f"event: ...\\ndata: ..." 包装)。"""
+    return {"event": event_type, **data}
 
 
 async def resume_from_checkpoint(
@@ -39,12 +39,12 @@ async def resume_from_checkpoint(
     checkpoint_message_id: str,
     device_id: str | None = None,
     user_decision: dict | None = None,
-) -> AsyncIterator[bytes]:
+) -> AsyncIterator[dict]:
     """HITL generate_article 确认续跑入口(react_loop 等价)。
 
     与 react_loop.run_agent_turn_from_checkpoint 行为字节级对齐:
     - 同样的校验(缺失 / 已 resolved / 格式不识别 → yield error)
-    - 同样的 SSE 字节流(经 SSEBridge._dispatch 输出 7 类事件 + turn_complete)
+    - 同样的 SSE dict 流(agent_chat 层统一 SSE 包装)
     - 同样的 session_id / device_id 关联
 
     user_decision 默认为 {"approved": True}(generate_article 确认)。
@@ -102,12 +102,11 @@ async def resume_from_checkpoint(
         yield _emit("error", {"message": "unrecognized tool_calls format"})
         return
 
-    # 3. 用 LangGraph Command(resume=...) 续跑,经 SSEBridge 输出 SSE 字节
+    # 3. 用 LangGraph Command(resume=...) 续跑,经 SSEBridge 输出 SSE dict
     decision = user_decision or {"approved": True}
     command = resume_command(decision)
     graph = build_react_graph()
     bridge = SSEBridge()
-    # 初始化 bridge 状态(react_graph 路径 T4)
     bridge._session_id = session_id
     bridge._device_id = device_id
     bridge._turn_start = None  # resume 不计入 turn_duration
@@ -119,8 +118,22 @@ async def resume_from_checkpoint(
             config={"configurable": {"thread_id": session_id}},
             version="v2",
         ):
-            async for sse in bridge._dispatch(event):
-                yield sse
+            # SSEBridge._dispatch 产 bytes;agent_chat 层会自己包装 SSE 协议
+            # 这里我们需要把 bytes 解析回 dict(因为 agent_chat 期望 dict 流)
+            # 注意:SSE 字节格式是 {json dict}\n,我们用 _decode_sse 解析
+            async for sse_bytes in bridge._dispatch(event):
+                if isinstance(sse_bytes, bytes):
+                    # bytes → 解码 → 取 JSON → 转 dict
+                    text = sse_bytes.decode("utf-8").strip()
+                    if text:
+                        try:
+                            parsed = json.loads(text)
+                            yield parsed
+                        except json.JSONDecodeError:
+                            # 非 JSON 字节,直接 skip
+                            continue
+                elif isinstance(sse_bytes, dict):
+                    yield sse_bytes
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "resume_failed",
