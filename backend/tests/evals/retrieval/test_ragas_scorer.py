@@ -44,3 +44,18 @@ async def test_score_degrades_without_llm():
     assert s.llm_available is False
     assert s.faithfulness == 0.0 and s.answer_relevancy == 0.0
     assert s.context_precision == 1.0  # 纯函数仍可算
+
+
+async def test_faithfulness_strips_think_block():
+    """DeepSeek-R1 等推理模型输出 <think>...</think> 块,应被剥离再 parse JSON。"""
+    llm = _FakeLLM('<think>\n让我逐句分析...\n</think>\n{"supported": 3, "total": 3}')
+    score = await faithfulness("答案句1。答案句2。答案句3。", ["ctx"], llm)
+    assert score == 1.0  # 不再 fallback 到 0.0
+
+
+async def test_faithfulness_handles_numbered_list():
+    """prompt 规则 3:序号列表每个条目算一个陈述。"""
+    llm = _FakeLLM('{"supported": 5, "total": 5}')
+    answer = "1. 手工现做。\n2. 汤底清淡。\n3. 营业时间长。\n4. 平价亲民。\n5. 老牌。"
+    score = await faithfulness(answer, ["相关上下文"], llm)
+    assert score == 1.0

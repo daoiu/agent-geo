@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from evals.retrieval.retrieval_metrics import precision_at_k
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)  # DeepSeek-R1 / QwQ 推理模型输出
 
 
 @dataclass
@@ -32,11 +33,19 @@ def context_precision(retrieved_ids: list[str], relevant_ids: list[str], k: int 
 async def faithfulness(answer: str, contexts: list[str], llm) -> float:
     ctx = "\n".join(contexts)
     prompt = (
-        "判断下面【答案】中的每个陈述是否能被【上下文】支撑。"
+        "判断下面【答案】中的每个陈述是否能被【上下文】支撑。\n"
+        "规则:\n"
+        "1. 只数【答案】中用句号、问号或换行分隔的完整句子,不按标点碎片拆分;\n"
+        "2. 如果答案为单个词或短语无句号,则 total=1,supported=1(当该词在上下文中有明确对应);\n"
+        "3. 序号列表(如\"1. ... 2. ...\")中每个条目算一个陈述;\n"
+        "4. 只要陈述的核心事实在上下文中存在(即使表述略有差异)即为支撑;\n"
+        "5. 完全在上下文中未提及的陈述才不算支撑。\n"
         '只输出 JSON:{"supported": 支撑句数, "total": 总句数}。\n\n'
         f"【上下文】\n{ctx}\n\n【答案】\n{answer}"
     )
-    reply = _FENCE_RE.sub("", await llm.simple_chat(prompt)).strip()
+    # 兼容推理模型:先剥 <think>...</think> 块,再剥 ```json``` fence
+    reply = _THINK_RE.sub("", await llm.simple_chat(prompt))
+    reply = _FENCE_RE.sub("", reply).strip()
     try:
         obj = json.loads(reply)
         total = int(obj["total"])
