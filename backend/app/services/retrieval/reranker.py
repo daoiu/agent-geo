@@ -28,7 +28,12 @@ class CrossEncoderReranker:
     def __init__(self, model_name: str, cache_dir: str) -> None:
         from sentence_transformers import CrossEncoder
         if CrossEncoderReranker._model is None:
-            CrossEncoderReranker._model = CrossEncoder(model_name, cache_folder=cache_dir)
+            # sentence-transformers 3.x 把 cache_folder 改名为 cache_folder → cache_dir 都接受
+            # 优先传 cache_dir,旧版本则回退 cache_folder,避免 TypeError 触发降级
+            try:
+                CrossEncoderReranker._model = CrossEncoder(model_name, cache_dir=cache_dir)
+            except TypeError:
+                CrossEncoderReranker._model = CrossEncoder(model_name, cache_folder=cache_dir)
         self._model = CrossEncoderReranker._model
 
     def rerank(self, query: str, candidates: list[dict], top_k: int) -> list[dict]:

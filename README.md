@@ -27,6 +27,7 @@
 - 🧠 **ChatGPT 风格智能助手** —— "帮我诊断小米" 一句话触发完整流程
 - 🔍 **白帽 GEO 诊断** —— 5 维度评分(权威性 / 相关性 / 结构 / 新鲜度 / 可验证)
 - 📚 **Hybrid RAG 知识库** —— ChromaDB 向量 + jieba 关键词 + RRF 融合,跨库召回
+- 🚀 **① 混合检索管道升级**(2026-07-17) —— 查询改写(Multi-Query+HyDE) → 向量+BM25(rank_bm25)双路召回 → RRF 融合 → Cross-Encoder(bge-reranker)重排,配 Redis ZSET LRU 语义缓存(有界扫描);RAGAS 指标上 faithfulness 0.0 → **0.25**、answer_relevancy 0.709 → **0.739**(4 条金标集,环境无 reranker 模型 + 无 Redis,降级路径仍生效)
 - 📊 **RAG 评测闭环** —— 自建金标集(LLM 半合成 + 人工抽查),RAGAS 式三指标(faithfulness / answer_relevancy / context_precision)+ Recall@5 / MRR@5;真混合检索基线 context_precision@5 = **0.25**,MRR@5 = 0.833,Recall@5 = 1.0
 - ✍️ **多 Agent 内容生成** —— 主 Agent → ContentWriterSpecialist Handoff,失败自动降级
 - 📊 **周期监控告警** —— APScheduler 每时 / 每日 / 每周,产出 monitor_snapshots
@@ -396,7 +397,9 @@ cd backend
 cd backend
 .venv/Scripts/python.exe -m scripts.build_golden_set       # 生成金标草稿 → 人工抽查 → 改名 golden_set.jsonl
 .venv/Scripts/python.exe -m scripts.run_baseline           # 跑基线 → reports/eval/retrieval-baseline-{date}.{md,json}
+.venv/Scripts/python.exe -m scripts.run_after              # ① 跑升级后管道(走 search_pipeline)→ reports/eval/retrieval-after-pipeline-{date}.{md,json}
 .venv/Scripts/python.exe -m pytest tests/evals/retrieval/ -v   # 22 用例:指标纯函数 / 数据集 / RAGAS / runner
+.venv/Scripts/python.exe -m pytest tests/services/retrieval/ -v   # 19 用例:① 配置 / 分词 / BM25 / 改写 / 重排 / 缓存 / 编排
 
 # 前端
 cd frontend
