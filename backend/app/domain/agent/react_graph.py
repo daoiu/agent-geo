@@ -30,6 +30,9 @@ from app.domain.agent.langgraph_nodes.truncate_messages import truncate_messages
 from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.domain.agent.state import AgentState
 from app.domain.agent.tools import TOOLS
+# T3 — 记忆预热:在 graph 入口处一次性填充 memory_chunk + memory_index_segment
+from app.domain.agent.langgraph_nodes.memory_preheat import memory_preheat_node
+from app.domain.agent.turn_helpers import _apply_memory_prepend, build_messages
 
 # T2 — DB 持久化:与 react_loop 等价,assistant / tool 消息在节点产出后立即落库。
 # 测试通过 monkeypatch 替换 AgentRepository / get_session_factory。
@@ -83,12 +86,32 @@ async def _agent_node(state: AgentState, runtime) -> dict:
     """react_graph 主循环 agent 节点:调 LLMClient,返回 AIMessage。
 
     T2:同时把 assistant 消息落库,与 react_loop 路径等价。
+    T3:用 turn_helpers.build_messages 注入 memory_index_segment 到 system 末尾,
+       并对 messages 应用 _apply_memory_prepend(react_loop._drive_react_loop 等价)。
     """
     dict_msgs = _to_dict_messages(state["messages"])
-    tools_for_llm = TOOLS
+    memory_index_segment = state.get("memory_index_segment") or ""
+    memory_chunk = state.get("memory_chunk")
 
+    # T3 — 用 build_messages 拼装 messages(含 system 段),对齐 react_loop
+    # build_messages 内部已注入 AGENT_SYSTEM_PROMPT + memory_index_segment
+    oa_messages = build_messages(
+        dict_msgs,
+        memory_index_segment=memory_index_segment,
+    )
+
+    # T3 — memory prepend:若有关联记忆,拼到第一条 user 消息前
+    if memory_chunk and isinstance(memory_chunk, dict):
+        from app.domain.agent.langgraph_nodes.memory_snapshot import (
+            _format_memory_block,
+        )
+        prepend_text = _format_memory_block(memory_chunk)
+        if prepend_text:
+            oa_messages = _apply_memory_prepend(oa_messages, prepend_text)
+
+    tools_for_llm = TOOLS
     adapter = _LLMClientAdapter()
-    direct_result = await adapter.chat_with_tools(dict_msgs, tools_for_llm)
+    direct_result = await adapter.chat_with_tools(oa_messages, tools_for_llm)
 
     content = direct_result.get("content")
     tool_calls = direct_result.get("tool_calls")
@@ -226,16 +249,18 @@ LLMClient = None  # overridden by tests via monkeypatch
 def build_react_graph():
     """构造 react_graph 工厂返回的 CompiledStateGraph。
 
-    节点拓扑:
-      START → memory_snapshot → agent → tools → truncate → agent (loop) | END
+    节点拓扑(T3 加 memory_preheat):
+      START → memory_preheat → memory_snapshot → agent → tools → truncate → agent (loop) | END
     """
     g = StateGraph(AgentState)
+    g.add_node("memory_preheat", memory_preheat_node)
     g.add_node("memory_snapshot", memory_snapshot_node)
     g.add_node("agent", _agent_node)
     g.add_node("tools", _tool_node)
     g.add_node("truncate", truncate_messages_node)
 
-    g.add_edge(START, "memory_snapshot")
+    g.add_edge(START, "memory_preheat")
+    g.add_edge("memory_preheat", "memory_snapshot")
     g.add_edge("memory_snapshot", "agent")
     g.add_conditional_edges(
         "agent",

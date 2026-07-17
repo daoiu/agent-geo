@@ -21,5 +21,7 @@ class AgentState(MessagesState):
     messages: list[AnyMessage]
     session_id: str
     memory_chunk: dict | None
+    # T3 — memory_preheat_node 填充;_agent_node 通过 build_messages 拼到 system 末尾。
+    memory_index_segment: str | None
     truncation_result: dict | None
     tool_call_log: list[dict]
