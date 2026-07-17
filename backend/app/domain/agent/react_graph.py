@@ -32,7 +32,12 @@ from app.domain.agent.state import AgentState
 from app.domain.agent.tools import TOOLS
 # T3 — 记忆预热:在 graph 入口处一次性填充 memory_chunk + memory_index_segment
 from app.domain.agent.langgraph_nodes.memory_preheat import memory_preheat_node
-from app.domain.agent.turn_helpers import _apply_memory_prepend, build_messages
+from app.domain.agent.turn_helpers import (
+    _accumulate,
+    _apply_memory_prepend,
+    _new_metrics,
+    build_messages,
+)
 
 # T2 — DB 持久化:与 react_loop 等价,assistant / tool 消息在节点产出后立即落库。
 # 测试通过 monkeypatch 替换 AgentRepository / get_session_factory。
@@ -117,6 +122,13 @@ async def _agent_node(state: AgentState, runtime) -> dict:
     tool_calls = direct_result.get("tool_calls")
     ai = AIMessage(content=content or "", tool_calls=tool_calls or [])
 
+    # T4 — metrics 累计:基于 state['metrics'] 累加(首次 _new_metrics),
+    # 返回 dict 含更新后的 metrics,LangGraph state reducer 自动合并
+    metrics = state.get("metrics") or _new_metrics()
+    _accumulate(metrics, direct_result.get("usage"))
+    if tool_calls:
+        metrics["tool_calls"] += len(tool_calls)
+
     # T2 持久化:与 react_loop._drive_react_loop 相同格式
     tc_for_db = None
     if tool_calls:
@@ -146,7 +158,7 @@ async def _agent_node(state: AgentState, runtime) -> dict:
             tool_calls=tc_for_db,
         )
 
-    return {"messages": [ai]}
+    return {"messages": [ai], "metrics": metrics}
 
 
 # module-level LLMClient ref (tests monkeypatch this)

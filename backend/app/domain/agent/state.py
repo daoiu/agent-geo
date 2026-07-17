@@ -25,3 +25,6 @@ class AgentState(MessagesState):
     memory_index_segment: str | None
     truncation_result: dict | None
     tool_call_log: list[dict]
+    # T4 — _agent_node 累计 metrics(每次调 LLM 累计 usage),sse_bridge 收尾时
+    # _emit_metrics(state.metrics) 发射 agent_turn_metrics 日志。
+    metrics: dict | None
