@@ -1,0 +1,1 @@
+"""检索评测模块:Recall@k / MRR@k / Precision@k + 金标集 + RAGAS 式三指标。"""
