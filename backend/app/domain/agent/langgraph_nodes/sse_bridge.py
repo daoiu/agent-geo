@@ -119,51 +119,107 @@ class SSEBridge:
             if isinstance(output, dict) and "metrics" in output:
                 self._merge_metrics(output["metrics"])
 
-        # 1. assistant_message
-        if ev == "on_chat_model_stream":
-            chunk = data.get("chunk")
-            if chunk is not None:
-                yield _emit(
-                    "assistant_message",
-                    {"content": chunk.content if hasattr(chunk, "content") else ""},
-                )
+        # 1. assistant_message — T6:不再依赖 on_chat_model_stream;改在 on_chain_end
+        # 时从最后一条 AIMessage 取 content(react_loop 单事件 + 完整 content 等价)
+        if ev == "on_chain_end" and not self._has_interrupt(data):
+            output = data.get("output") or {}
+            msgs = output.get("messages") if isinstance(output, dict) else None
+            if msgs:
+                last_ai = None
+                for m in msgs:
+                    role = (
+                        getattr(m, "type", None)
+                        if not isinstance(m, dict)
+                        else m.get("role")
+                    )
+                    if role in ("ai", "assistant"):
+                        last_ai = m
+                if last_ai is not None:
+                    content = (
+                        getattr(last_ai, "content", "")
+                        if not isinstance(last_ai, dict)
+                        else last_ai.get("content", "")
+                    )
+                    if not isinstance(content, str):
+                        content = str(content)
+                    yield _emit("assistant_message", {"content": content or ""})
 
-        # 2. tool_call_start
+        # 2. tool_call_start — T6:tool_call_id 暂从 on_chain_end 时 AIMessage.tool_calls
+        # 取(节点级);on_tool_start 仍用 name 占位,real id 在 tool_call_result 时再校准
         elif ev == "on_tool_start":
             yield _emit(
                 "tool_call_start",
                 {
-                    "tool_call_id": data.get("name"),  # run_id 是 tool 名作为 id
+                    "tool_call_id": data.get("name"),  # 占位:真 id 见 tool_call_result
                     "tool_name": data.get("name"),
                     "arguments": data.get("input", {}),
                 },
             )
 
-        # 3. tool_call_result
+        # 3. tool_call_result — T6:tool_call_id 来自 output["tool_call_id"]
+        # (LangGraph 序列化的 ToolMessage dict),不再用工具名
         elif ev == "on_tool_end":
+            output = data.get("output") or {}
+            real_tc_id = None
+            if isinstance(output, dict):
+                real_tc_id = output.get("tool_call_id")
+            elif hasattr(output, "tool_call_id"):
+                real_tc_id = output.tool_call_id
             yield _emit(
                 "tool_call_result",
                 {
-                    "tool_call_id": data.get("name"),
-                    "result": data.get("output"),
+                    "tool_call_id": real_tc_id or data.get("name"),
+                    "result": output if isinstance(output, (str, int, float, list, dict, bool, type(None))) else str(output),
                 },
             )
 
-        # 4. human_confirmation_required
+        # 4. human_confirmation_required / input_required / progress_confirm
+        # T6:interrupt 按 kind 分派(react_loop L500-520 等价)
         elif ev == "on_chain_end" and self._has_interrupt(data):
             intr = data["output"].get("__interrupt__") or []
             first = intr[0] if intr else None
-            self._emit_metrics_once(f"hitl_{(first.value.get('kind') if first else 'decision')}")
-            payload = {
-                "event": "human_confirmation_required",
-                "kind": first.value.get("kind") if first else None,
-                "message_id": first.value.get("message_id") if first else None,
-                "tool_name": first.value.get("tool_name") if first else None,
-                "arguments": first.value.get("arguments", {}) if first else {},
-                "tool_call_id": first.value.get("tool_call_id") if first else None,
-                "resume_token": first.id if first else None,
-            }
-            yield _emit("human_confirmation_required", payload)
+            val = (first.value if first else {}) or {}
+            kind = val.get("kind") or "decision"
+            self._emit_metrics_once(f"hitl_{kind}")
+
+            if kind == "input":
+                payload = {
+                    "event": "input_required",
+                    "kind": "input",
+                    "message_id": val.get("message_id"),
+                    "tool_name": val.get("tool_name"),
+                    "arguments": val.get("arguments", {}),
+                    "tool_call_id": val.get("tool_call_id"),
+                    "input_schema": val.get("input_schema", {}),
+                    "prompt": val.get("prompt", ""),
+                    "resume_token": first.id if first else None,
+                }
+                yield _emit("input_required", payload)
+            elif kind == "progress_confirm":
+                payload = {
+                    "event": "progress_confirm",
+                    "kind": "progress_confirm",
+                    "message_id": val.get("message_id"),
+                    "tool_name": val.get("tool_name"),
+                    "arguments": val.get("arguments", {}),
+                    "tool_call_id": val.get("tool_call_id"),
+                    "progress_pct": val.get("progress_pct"),
+                    "eta_seconds": val.get("eta_seconds"),
+                    "resume_token": first.id if first else None,
+                }
+                yield _emit("progress_confirm", payload)
+            else:
+                # kind='decision' 或默认
+                payload = {
+                    "event": "human_confirmation_required",
+                    "kind": "decision",
+                    "message_id": val.get("message_id"),
+                    "tool_name": val.get("tool_name"),
+                    "arguments": val.get("arguments", {}),
+                    "tool_call_id": val.get("tool_call_id"),
+                    "resume_token": first.id if first else None,
+                }
+                yield _emit("human_confirmation_required", payload)
 
         # 5. turn_complete (on_chain_end without __interrupt__)
         elif ev == "on_chain_end" and not self._has_interrupt(data):
