@@ -11,8 +11,19 @@ from app.core.db import get_session_factory
 from app.domain.knowledge.vector_index import VectorIndex
 from app.repositories.knowledge_repo import KnowledgeRepository
 from app.services.embedding import EmbeddingService
+from app.services.retrieval.bm25_search import bm25_rank
+from app.services.retrieval.query_rewrite import rewrite
+from app.services.retrieval.reranker import get_reranker
+from app.services.retrieval.semantic_cache import get_cache
 
 logger = structlog.get_logger()
+
+
+async def _load_corpus(kb_id: str) -> list[tuple[str, str]]:
+    """载入 KB 全量 chunk 供 BM25 召回用。返回 [(chunk_id, content), ...]。"""
+    async with get_session_factory()() as session:
+        chunks = await KnowledgeRepository(session).list_chunks(kb_id)
+    return [(c.id, c.content) for c in chunks]
 
 
 def rrf_fusion(
@@ -48,7 +59,81 @@ def rrf_fusion(
 
 
 class HybridSearch:
-    """Orchestrate vector + keyword + RRF with graceful fallback."""
+    """Orchestrate vector + keyword + RRF with graceful fallback.
+
+    v0.7+ ① 混合检索管道:新增可注入的 __init__(rewriter / reranker / cache / llm)
+    与 search_pipeline 全管道方法(缓存 → 改写 → 双路召回 → RRF → 重排)。
+    既有 search / _hybrid_search / _keyword_search / search_across_kbs 保持向后兼容。
+    """
+
+    def __init__(self, rewriter=None, reranker=None, cache=None, llm=None) -> None:
+        # 全部可注入,默认 None 表示在 search_pipeline 内按需取真实实现
+        self._rewriter = rewriter
+        self._reranker = reranker
+        self._cache = cache
+        self._llm = llm
+
+    async def search_pipeline(self, kb_id: str, query: str, top_k: int = 5) -> list[dict]:
+        """全管道检索:语义缓存 → 查询改写 → 向量+BM25 双路 → RRF → 重排。
+
+        每环都做降级(任一环坏不阻断):缓存/改写/向量/BM25 失败仅 warning。
+        无 LLM key → 跳过改写;无 reranker 模型 → 恒等重排;无 Redis → 缓存 no-op。
+        """
+        settings = get_settings()
+        cache = self._cache if self._cache is not None else get_cache(
+            settings, EmbeddingService.embed
+        )
+        reranker = self._reranker if self._reranker is not None else get_reranker(settings)
+
+        # 1. 语义缓存
+        cached = await cache.get(query)
+        if cached is not None:
+            return cached
+
+        # 2. 查询改写
+        llm = self._llm
+        if llm is None:
+            from app.domain.llm_client import LLMClient
+            llm = LLMClient(settings)
+        if settings.enable_query_rewrite:
+            variants = await rewrite(
+                query,
+                llm,
+                n=settings.multi_query_n,
+                enable_hyde=settings.enable_hyde,
+            )
+        else:
+            variants = [query]
+
+        # 3. 双路召回(每条改写)
+        vector_hits: list[dict] = []
+        keyword_hits: list[dict] = []
+        corpus = await _load_corpus(kb_id)
+        for v in variants:
+            try:
+                embedding = EmbeddingService.embed([v])[0]
+                vector_hits.extend(
+                    VectorIndex(kb_id).query(
+                        query_embedding=embedding,
+                        top_k=settings.hybrid_top_k_vector,
+                    )
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("pipeline_vector_failed", error=str(e))
+            keyword_hits.extend(bm25_rank(corpus, v, top_k=settings.hybrid_top_k_keyword))
+
+        # 4. RRF 融合 → top-M 候选
+        fused = rrf_fusion(
+            vector_hits, keyword_hits,
+            top_k=settings.rerank_top_m, k=settings.hybrid_rrf_k,
+        )
+
+        # 5. Cross-Encoder 重排 → top-k
+        reranked = reranker.rerank(query, fused, top_k=top_k)
+
+        # 6. 回填缓存
+        await cache.set(query, reranked)
+        return reranked
 
     async def search(
         self,
