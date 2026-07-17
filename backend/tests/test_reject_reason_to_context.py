@@ -110,7 +110,7 @@ def test_reject_reason_appears_in_next_turn_messages(db_session) -> None:
 
     验证:reject reason 是 user role,会被 build_messages 当 user 消息处理。
     """
-    from app.domain.agent.react_loop import build_messages
+    from app.domain.agent.turn_helpers import build_messages
     from app.core.db import get_session_factory
     sid, msg_id = _setup_pending(db_session)
 

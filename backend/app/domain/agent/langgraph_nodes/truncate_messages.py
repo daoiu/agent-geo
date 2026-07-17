@@ -100,7 +100,7 @@ async def truncate_messages_node(state: TypedDict, runtime) -> dict:
 def _get_encoder():
     """复用 react_loop 懒加载 tiktoken encoder(失败回退字符级)。"""
     try:
-        from app.domain.agent.react_loop import _get_tiktoken_encoder
+        from app.domain.agent.turn_helpers import _get_tiktoken_encoder
         return _get_tiktoken_encoder()
     except Exception:  # noqa: BLE001
         return None

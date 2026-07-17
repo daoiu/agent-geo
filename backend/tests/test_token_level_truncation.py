@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import tiktoken
 
-from app.domain.agent.react_loop import build_messages
+from app.domain.agent.turn_helpers import build_messages
 
 
 def _make_long_tool_result(char_count: int = 5000) -> dict:

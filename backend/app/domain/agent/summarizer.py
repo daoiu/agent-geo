@@ -22,7 +22,7 @@ from typing import Any, Protocol
 
 import structlog
 
-from app.domain.agent.react_loop import build_messages
+from app.domain.agent.turn_helpers import build_messages
 from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS
 
 
