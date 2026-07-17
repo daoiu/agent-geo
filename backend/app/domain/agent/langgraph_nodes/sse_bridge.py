@@ -1,20 +1,30 @@
-"""v0.8 SSEBridge(spec §7):把 LangGraph astream_events 输出映射回 react_loop 7 类 SSE 事件。
+"""v0.8 SSEBridge(spec §7):把 LangGraph astream_events 输出映射到 8 类 SSE 事件。
 
-react_loop 7 类事件:
+CR-5:react_loop 时期 SSE 事件为 7 类(T6 实施时实际只数 7);T6 增加
+input_required + progress_confirm 两个 HITL kind,react_graph 路径实际产出
+8 类事件。本 docstring 已同步。
+
+8 类事件:
 1. assistant_message
 2. tool_call_start
 3. tool_call_result
-4. human_confirmation_required
-5. turn_complete
-6. max_iterations_reached
-7. llm_error
+4. human_confirmation_required   (HITL kind='decision')
+5. input_required                (HITL kind='input',附 input_schema+prompt)
+6. progress_confirm              (HITL kind='progress_confirm',附 progress_pct+eta_seconds)
+7. turn_complete
+8. max_iterations_reached
+9. llm_error
 
-字节级兼容契约:同一 fixture input 输入,react_loop 现有路径与 SSEBridge 路径
-输出(剔除 timestamp 后)byte-identical,以保证前端 SSE 协议零改动。
+字节级兼容契约:同一 fixture input 输入,react_loop 路径(历史,已删)与
+SSEBridge 路径输出(剔除 timestamp 后)byte-identical,以保证前端 SSE 协议
+零改动。
 
 T4 — metrics 收尾发射:在 turn_complete / interrupt / max_iterations / llm_error
 前调 _emit_metrics(state.acc_metrics, ...) + compute_cost(primary, ...),
 与 react_loop._drive_react_loop 行为字节级对齐。
+
+CR-5:replay() 方法在 T9 parity 双跑使用,T10 删 react_loop 后已无生产用途,
+但保留作为评测/调试入口。详见 docstring。
 """
 from __future__ import annotations
 
@@ -28,6 +38,8 @@ from langchain_core.runnables.schema import StreamEvent
 from app.domain.agent.turn_helpers import (
     _emit_metrics,
     _new_metrics,
+    langchain_message_content,
+    langchain_message_to_dict,
     schedule_extract,
 )
 
@@ -55,9 +67,13 @@ class SSEBridge:
         self._cost_emitted: bool = False  # 防止重复 emit(turn_complete + 后续 chain_end)
 
     async def replay(self, fixture_input: dict) -> AsyncIterator[bytes]:
-        """测试/双跑使用:把 fixture 喂给 react_graph,产出 7 类 SSE.
+        """测试/评测使用:把 fixture 喂给 react_graph,产出 8 类 SSE 字节流。
 
-        Task 11 完成后可用;Task 11 之前 ImportError/RecursionError 被捕获并映射.
+        历史:T9 parity 双跑期间 react_loop vs langgraph 对照用。
+        CR-5:T10 删 react_loop 后已无生产用途;evals/runner.py --compare
+        改为 LangGraph 单路径自检(不再调 react_loop)。本方法保留供评测
+        框架 / 调试 / ad-hoc fixture 重放使用,不应用于生产请求路径。
+
         T4:replay 初始化 _session_id / _device_id / _turn_start / _primary_provider,
         用于 _emit_metrics + compute_cost 收尾调用。
         """
@@ -137,14 +153,10 @@ class SSEBridge:
                     if role in ("ai", "assistant"):
                         last_ai = m
                 if last_ai is not None:
-                    content = (
-                        getattr(last_ai, "content", "")
-                        if not isinstance(last_ai, dict)
-                        else last_ai.get("content", "")
+                    yield _emit(
+                        "assistant_message",
+                        {"content": langchain_message_content(last_ai) or ""},
                     )
-                    if not isinstance(content, str):
-                        content = str(content)
-                    yield _emit("assistant_message", {"content": content or ""})
 
             # T5 — turn_complete 前 fire-and-forget 触发记忆蒸馏 + 收尾 emit metrics
             if output and not isinstance(output, str):
@@ -286,29 +298,14 @@ class SSEBridge:
         return False
 
     def _history_from_output(self, output: dict) -> list[dict] | None:
-        """从 agent 节点 output 提取 messages,转 dict-style 给 schedule_extract。"""
+        """从 agent 节点 output 提取 messages,转 dict-style 给 schedule_extract。
+
+        CR-1:复用 turn_helpers.langchain_message_to_dict 替代内联实现。
+        """
         msgs = output.get("messages") if isinstance(output, dict) else None
         if not msgs:
             return None
-        out: list[dict] = []
-        for m in msgs:
-            if isinstance(m, dict):
-                out.append(m)
-                continue
-            role = {"human": "user", "ai": "assistant", "tool": "tool", "system": "system"}.get(
-                getattr(m, "type", "user"), "user"
-            )
-            content = getattr(m, "content", "")
-            if not isinstance(content, str):
-                content = str(content)
-            entry: dict = {"role": role, "content": content}
-            if hasattr(m, "tool_calls") and getattr(m, "tool_calls", None):
-                # 不展开 tool_calls — schedule_extract 走 db history reload 即可
-                entry["tool_calls"] = list(getattr(m, "tool_calls", []))
-            if role == "tool" and hasattr(m, "tool_call_id"):
-                entry["tool_call_id"] = m.tool_call_id
-            out.append(entry)
-        return out
+        return [langchain_message_to_dict(m) for m in msgs]
 
     def _initial_state(self, fixture_input: dict) -> dict:
         from langchain_core.messages import HumanMessage

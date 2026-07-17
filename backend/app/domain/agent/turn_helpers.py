@@ -253,6 +253,50 @@ def _new_metrics() -> dict:
     }
 
 
+# ===========================================================================
+# v0.8+ CR-1 — LangChain ↔ dict 适配 helpers(消除 sse_bridge / memory_preheat 重复)
+# ===========================================================================
+
+_LANGCHAIN_ROLE_MAP: dict = {
+    "human": "user", "ai": "assistant", "tool": "tool", "system": "system",
+}
+
+
+def langchain_message_to_dict(m) -> dict:
+    """LangChain BaseMessage / dict → dict-style 统一转换。
+
+    用于:
+    - memory_preheat_node 派生 history 给 MemoryService.load_relevant_memories
+    - sse_bridge._history_from_output 把 agent 节点 output.messages 转 dict-style
+
+    行为契约:
+    - dict 输入:原样返回(支持纯 dict-style 历史输入)
+    - LangChain BaseMessage / AnyMessage:按 type 映射 role,content 字符串化
+    - role 不识别时降级为 "user"(与 sse_bridge / memory_preheat 既定行为一致)
+    """
+    if isinstance(m, dict):
+        return m
+    role = _LANGCHAIN_ROLE_MAP.get(getattr(m, "type", "user") or "user", "user")
+    content = getattr(m, "content", "")
+    if not isinstance(content, str):
+        content = str(content)
+    out: dict = {"role": role, "content": content}
+    if role == "tool" and hasattr(m, "tool_call_id"):
+        out["tool_call_id"] = m.tool_call_id
+    return out
+
+
+def langchain_message_content(m, default: str = "") -> str:
+    """从 LangChain BaseMessage / dict 安全取 content(强制 str)。"""
+    if isinstance(m, dict):
+        c = m.get("content", default)
+    else:
+        c = getattr(m, "content", default)
+    if not isinstance(c, str):
+        c = str(c)
+    return c
+
+
 def _accumulate(agg: dict, usage: dict | None) -> None:
     agg["iterations"] += 1
     agg["llm_calls"] += 1

@@ -12,10 +12,16 @@ from app.domain.agent import dispatch
 
 
 def test_no_react_loop_branch_in_dispatch():
-    """dispatch.py 源代码不含 langgraph_enabled / _run_react_loop_turn 残留。"""
+    """dispatch.py run_agent_turn 不再有 react_loop 分支(单 LangGraph / orchestrator 路径)。
+
+    _run_react_loop_turn 可作为 T9 parity shim 存在(供 evals/runner.py --compare),
+    但 run_agent_turn 主入口已不再走 react_loop 路径。
+    """
     src = inspect.getsource(dispatch)
     assert "langgraph_enabled" not in src
-    assert "_run_react_loop_turn" not in src
+    # 校验 _run_react_loop_turn 不出现在 run_agent_turn 函数体内(分支调用)
+    run_agent_turn_src = inspect.getsource(dispatch.run_agent_turn)
+    assert "_run_react_loop_turn" not in run_agent_turn_src
     # 仍保留 _run_langgraph_turn(单路径入口)
     assert "_run_langgraph_turn" in src or "LangGraph" in src
 

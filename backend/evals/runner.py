@@ -183,9 +183,12 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.core.db import init_db
-    from app.domain.agent.dispatch import _run_react_loop_turn, _run_langgraph_turn
+    from app.domain.agent.dispatch import _run_langgraph_turn
     from app.models.orm import Base
     from app.repositories.agent_repo import AgentRepository
+
+    # T10 后 react_loop 已删,只跑 LangGraph 单路径。
+    # CR-3:compare_evals 改为 LangGraph 自对比(mock LLM 注入一致性)而非 react_loop vs LangGraph。
 
     # 临时 DB(避免污染 production)
     fd, db_path = tempfile.mkstemp(suffix=".db")
@@ -223,17 +226,13 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
         async def chat_with_tools(self, messages, tools):
             return {"content": "stub response", "tool_calls": None, "usage": None}
 
-    # patch react_loop.LLMClient 和 react_graph.LLMClient
+    # T10 后 react_loop 已删,只 patch LangGraph 路径。
     # 关键:patch `app.domain.llm_client.LLMClient`(真正源头)而非 react_loop 模块
-    # 属性(react_loop 通过 from X import Y 拿到,但 monkeypatch 失败)
-    import app.domain.agent.react_loop as rl_mod
     import app.domain.agent.react_graph as rg_mod
     import app.domain.llm_client as llm_client_mod
 
-    rl_patcher = patch.object(rl_mod, "LLMClient", _StubLLM)
     rg_patcher = patch.object(rg_mod, "LLMClient", _StubLLM)
     src_patcher = patch.object(llm_client_mod, "LLMClient", _StubLLM)
-    rl_patcher.start()
     rg_patcher.start()
     src_patcher.start()
 
@@ -262,33 +261,34 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
 
     try:
         for c in cases:
-            react_chunks = await _collect_sse(_run_react_loop_turn, c["session_id"], c["message"])
-            lang_chunks = await _collect_sse(_run_langgraph_turn, c["session_id"], c["message"])
+            # T10 后 react_loop 已删,改为 LangGraph 单路径自检:
+            # 同 case 跑两次,验证两次输出一致(LLM 已 mock → 确定性)
+            chunks_a = await _collect_sse(_run_langgraph_turn, c["session_id"], c["message"])
+            chunks_b = await _collect_sse(_run_langgraph_turn, c["session_id"], c["message"])
 
-            # text 相似度(LangGraph output 与 react_loop 一致应为 ≥95%)
-            react_text = "".join(
-                x.get("content", "") for x in react_chunks
+            # text 相似度(两次跑应一致,LLM mock 后确定性 1.0)
+            text_a = "".join(
+                x.get("content", "") for x in chunks_a
                 if x.get("event") == "assistant_message"
             )
-            lang_text = "".join(
-                x.get("content", "") for x in lang_chunks
+            text_b = "".join(
+                x.get("content", "") for x in chunks_b
                 if x.get("event") == "assistant_message"
             )
-            overall_matches.append(_rouge_l(react_text, lang_text))
+            overall_matches.append(_rouge_l(text_a, text_b))
 
             # tool_call 一致
-            react_tools = {x.get("tool_name") for x in react_chunks if x.get("event") == "tool_call_start"}
-            lang_tools = {x.get("tool_name") for x in lang_chunks if x.get("event") == "tool_call_start"}
-            tool_matches.append(1.0 if react_tools == lang_tools else 0.0)
+            tools_a = {x.get("tool_name") for x in chunks_a if x.get("event") == "tool_call_start"}
+            tools_b = {x.get("tool_name") for x in chunks_b if x.get("event") == "tool_call_start"}
+            tool_matches.append(1.0 if tools_a == tools_b else 0.0)
 
             # handoff event 一致
-            react_handoff = sum(1 for x in react_chunks if x.get("event") == "human_confirmation_required")
-            lang_handoff = sum(1 for x in lang_chunks if x.get("event") == "human_confirmation_required")
-            handoff_matches.append(1.0 if react_handoff == lang_handoff else 0.0)
+            handoff_a = sum(1 for x in chunks_a if x.get("event") == "human_confirmation_required")
+            handoff_b = sum(1 for x in chunks_b if x.get("event") == "human_confirmation_required")
+            handoff_matches.append(1.0 if handoff_a == handoff_b else 0.0)
 
-            sse_counts.append(len(react_chunks) == len(lang_chunks))
+            sse_counts.append(len(chunks_a) == len(chunks_b))
     finally:
-        rl_patcher.stop()
         rg_patcher.stop()
         src_patcher.stop()
         te_patcher.stop()
@@ -302,13 +302,14 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "diff_report.md").write_text(
-        f"""# Compare Report
+        f"""# Compare Report (CR-3: LangGraph 单路径自检,T10 后 react_loop 已删)
 overall_match: {report['overall_match']:.3f}
 tool_call_match: {report['tool_call_match']}
 handoff_match: {report['handoff_match']}
 sse_event_count_equal: {report['sse_event_count_equal']}
 
-逐 case diff 见 Langfuse / `reports/eval/diff/` 详细日志。
+注:T10 删 react_loop 后,此 CLI 改为 LangGraph 单路径自检(同 case 跑两次,
+LLM mock 后确定性 → 期望全部为 1.0/true)。
 """,
         encoding="utf-8",
     )
@@ -326,7 +327,7 @@ sse_event_count_equal: {report['sse_event_count_equal']}
 if __name__ == "__main__":
     import sys
 
-    # CLI: --compare 双跑 react_loop + langgraph 模式
+    # CLI: --compare LangGraph 单路径自检(T10 后 react_loop 已删)
     if "--compare" in sys.argv:
         from pathlib import Path
 

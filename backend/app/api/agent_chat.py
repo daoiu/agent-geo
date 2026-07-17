@@ -1,11 +1,14 @@
-"""v0.4 Agent Chat API：SSE 流式 chat + 确认端点（支持断点续跑）。
+"""v0.4 Agent Chat API：SSE 流式 chat + 确认端点(支持断点续跑)。
 
 v0.6 P1.6 — 加 `X-Device-Id` 依赖(L2 跨会话偏好用)。
+
+CR-2:event_generator 直接 yield bytes(spec L445 字节契约,resume_from_checkpoint
+和 run_agent_turn 现都产 SSE 字节流),StreamingResponse 透传。
 """
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
@@ -19,34 +22,25 @@ from app.domain.agent.langgraph_nodes.resume import resume_from_checkpoint
 from app.repositories.agent_repo import AgentRepository
 
 
+def _replay_marker_bytes(session_id: str, message_id: str) -> bytes:
+    """SSE 'replay_start' 标记事件字节(replay_turn 端点前置)。"""
+    return (
+        f"event: replay_start\n"
+        f"data: {json.dumps({'message_id': message_id, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+    ).encode("utf-8")
+
+
 async def run_replay(
     session_id: str,
     message_id: str,
     device_id: str | None = None,
-) -> AsyncIterator[dict]:
-    """P2#32 / Task 41: 从任意 message_id 重放 turn。
-
-    与 run_agent_turn_from_checkpoint 的区别:
-    - 后者只支持 pending_confirmation 续跑
-    - replay 支持任意 message 重跑(用于调试 / A/B 测试 / 评测)
-
-    实现: 复用 run_agent_turn 但在历史中插入"replay_start"标记事件。
-    简化版: 直接调用 run_agent_turn 但把 query 设置为消息内容(若该 message 是 user)。
-    """
-    # 先 yield replay_start 标记
-    yield {
-        "event": "replay_start",
-        "session_id": session_id,
-        "message_id": message_id,
-        "note": "Replay stream — events may differ from original turn",
-    }
-
-    # 复用 from_checkpoint(支持任意 message_id,不仅 pending)
-    # 该函数已具备完整的 SSE event 输出能力
-    async for event in resume_from_checkpoint(
+) -> AsyncIterator[bytes]:
+    """P2#32 / Task 41: 从任意 message_id 重放 turn(产 SSE 字节流)。"""
+    yield _replay_marker_bytes(session_id, message_id)
+    async for sse_bytes in resume_from_checkpoint(
         session_id, message_id, device_id=device_id
     ):
-        yield event
+        yield sse_bytes
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -65,7 +59,7 @@ class SendMessageRequest(BaseModel):
 class ConfirmActionRequest(BaseModel):
     """确认 / 取消 human-in-the-loop 工具调用。
 
-    v0.6+ P1#26（Task 27）：
+    v0.6+ P1#26(Task 27):
     - reason: 可选,reject 时记录用户拒绝原因,作为 user 消息写入历史,
       LLM 下次 turn 能看到并据此调整(避免重复同类请求)
     - approved=True 时 reason 被忽略
@@ -87,18 +81,17 @@ async def send_message(
     session: AsyncSession = Depends(get_session),
     device_id: str | None = Depends(device_id_header),
 ):
-    """发送 user message，流式返回 agent 的 SSE 事件。"""
+    """发送 user message,流式返回 agent 的 SSE 字节流(react_loop 等价)。"""
     repo = AgentRepository(session)
     sess = await repo.get_session(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="session not found")
 
-    async def event_generator() -> AsyncIterator[str]:
-        async for event in run_agent_turn(
+    async def event_generator() -> AsyncIterator[bytes]:
+        async for sse_bytes in run_agent_turn(
             session_id, body.content, device_id=device_id
         ):
-            event_name = event.pop("event")
-            yield f"event: {event_name}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield sse_bytes
 
     return StreamingResponse(
         event_generator(),
@@ -119,8 +112,8 @@ async def confirm_action(
 ):
     """确认或取消 human-in-the-loop 工具调用。
 
-    approved=False：标记 resolved + 写"取消"消息 + 返回 JSON。
-    approved=True：调 run_agent_turn_from_checkpoint 从断点续跑并 stream SSE。
+    approved=False:标记 resolved + 写"取消"消息 + 返回 JSON。
+    approved=True:调 resume_from_checkpoint 从断点续跑并 stream SSE 字节流。
     """
     repo = AgentRepository(session)
     msg = await repo.get_message(message_id)
@@ -136,8 +129,8 @@ async def confirm_action(
         )
 
     if not body.approved:
-        # 拒绝：标记 resolved + 追加 user/assistant 消息
-        # v0.6+ P1#26（Task 27）：有 reason 时用 reason 作为 user 消息(LLM 下次可见)
+        # 拒绝:标记 resolved + 追加 user/assistant 消息
+        # v0.6+ P1#26(Task 27):有 reason 时用 reason 作为 user 消息(LLM 下次可见)
         await repo.confirm_message(message_id, approved=False)
         user_content = (body.reason or "").strip() or "取消"
         await repo.create_message(session_id=session_id, role="user", content=user_content)
@@ -149,15 +142,14 @@ async def confirm_action(
             media_type="application/json",
         )
 
-    # approved=True：标记 resolved 并 stream 续跑结果
+    # approved=True:标记 resolved 并 stream 续跑 SSE 字节流
     await repo.confirm_message(message_id, approved=True)
 
-    async def event_generator() -> AsyncIterator[str]:
-        async for event in resume_from_checkpoint(
+    async def event_generator() -> AsyncIterator[bytes]:
+        async for sse_bytes in resume_from_checkpoint(
             session_id, message_id, device_id=device_id
         ):
-            event_name = event.pop("event")
-            yield f"event: {event_name}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield sse_bytes
 
     return StreamingResponse(
         event_generator(),
@@ -166,7 +158,7 @@ async def confirm_action(
 
 
 # ---------------------------------------------------------------------------
-# v0.7+ P2#32（Task 41）: 显式 replay API — 从任意 message_id 重放 turn
+# v0.7+ P2#32(Task 41): 显式 replay API — 从任意 message_id 重放 turn
 # ---------------------------------------------------------------------------
 
 
@@ -186,10 +178,8 @@ async def replay_turn(
     - confirm: 仅对 pending_confirmation 续跑
     - replay: 任意 message(包括 user / 已完成) — 用于调试 / A/B 测试
 
-    流格式:先 yield `replay_start` 标记,然后调 from_checkpoint 输出完整事件流。
+    流格式:先 yield `replay_start` 标记字节,然后调 resume_from_checkpoint 输出完整 SSE 字节流。
     """
-    from app.domain.agent.langgraph_nodes.resume import resume_from_checkpoint
-
     repo = AgentRepository(session)
     msg = await repo.get_message(message_id)
     if msg is None:
@@ -199,17 +189,12 @@ async def replay_turn(
             status_code=404, detail="message does not belong to this session"
         )
 
-    async def event_generator() -> AsyncIterator[str]:
-        # 标记事件,前端可识别 replay
-        yield (
-            f"event: replay_start\n"
-            f"data: {json.dumps({'message_id': message_id, 'session_id': session_id}, ensure_ascii=False)}\n\n"
-        )
-        async for event in resume_from_checkpoint(
+    async def event_generator() -> AsyncIterator[bytes]:
+        yield _replay_marker_bytes(session_id, message_id)
+        async for sse_bytes in resume_from_checkpoint(
             session_id, message_id, device_id=device_id
         ):
-            event_name = event.pop("event")
-            yield f"event: {event_name}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield sse_bytes
 
     return StreamingResponse(
         event_generator(),

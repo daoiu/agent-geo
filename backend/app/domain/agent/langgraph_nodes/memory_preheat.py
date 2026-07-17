@@ -8,6 +8,8 @@ react_graph 需要等价节点:在 graph 进入 agent 前填充 state.memory_ind
 state.memory_chunk,与 react_loop 路径行为字节级对齐。
 
 降级:异常时返回空字段,不阻塞主流程(react_loop 等价行为)。
+
+CR-1:消息转换复用 turn_helpers.langchain_message_to_dict(消除 sse_bridge 重复)。
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ import structlog
 
 from app.core.db import get_session_factory
 from app.domain.agent.memory import MemoryService, scope_key
+from app.domain.agent.turn_helpers import langchain_message_to_dict
 
 logger = structlog.get_logger()
 
@@ -28,7 +31,7 @@ async def memory_preheat_node(state, runtime) -> dict:
     session_id = state.get("session_id", "")
     device_id = state.get("device_id")
     scope = scope_key(device_id, session_id)
-    history = [_msg_to_dict(m) for m in state.get("messages", [])]
+    history = [langchain_message_to_dict(m) for m in state.get("messages", [])]
     try:
         async with get_session_factory()() as session:
             svc = MemoryService(session)
@@ -42,13 +45,3 @@ async def memory_preheat_node(state, runtime) -> dict:
             error=str(e),
         )
         return {"memory_index_segment": "", "memory_chunk": None}
-
-
-def _msg_to_dict(m) -> dict:
-    """LangChain BaseMessage / dict → dict-style(给 MemoryService.load_relevant_memories)。"""
-    if isinstance(m, dict):
-        return m
-    role = {"human": "user", "ai": "assistant", "tool": "tool", "system": "system"}.get(
-        getattr(m, "type", "user"), "user"
-    )
-    return {"role": role, "content": getattr(m, "content", "")}

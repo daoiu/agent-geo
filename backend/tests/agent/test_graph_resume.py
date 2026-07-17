@@ -1,18 +1,11 @@
 """T7 验证:HITL generate_article 确认续跑迁到图 resume。
 
-react_loop.run_agent_turn_from_checkpoint(L596+)迁到
-langgraph_nodes/resume.py:resume_from_checkpoint(session_id, checkpoint_message_id,
-device_id=None) -> AsyncIterator[dict],用 LangGraph Command(resume=...) +
-graph.astream_events 续跑,经 SSEBridge._dispatch 产出 dict 流(agent_chat 层
-统一 SSE 包装)。
-
-测试焦点:
-- 缺失/已 resolved checkpoint message → yield error 事件后退出
-- 不抛异常,可迭代产出 dict
+CR-2:resume_from_checkpoint 签名 AsyncIterator[bytes](spec L445 字节契约),
+SSEBridge._dispatch 直接产 SSE 字节,agent_chat 透传给 StreamingResponse。
 """
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import json
 
 import pytest
 
@@ -32,9 +25,14 @@ class _FakeSessionCtx:
         return False
 
 
+def _decode(byts: bytes) -> dict:
+    """SSE 字节流(单 chunk 含一个 JSON dict + \\n)→ dict。"""
+    return json.loads(byts.decode("utf-8").strip())
+
+
 @pytest.mark.asyncio
-async def test_resume_missing_checkpoint_yields_error(monkeypatch):
-    """checkpoint message 不存在 → resume_from_checkpoint 立即 yield error 事件。"""
+async def test_resume_missing_checkpoint_yields_error_bytes(monkeypatch):
+    """checkpoint message 不存在 → resume_from_checkpoint yield SSE error 字节。"""
     from app.domain.agent.langgraph_nodes import resume
 
     class _RepoMissing:
@@ -45,17 +43,17 @@ async def test_resume_missing_checkpoint_yields_error(monkeypatch):
     monkeypatch.setattr(resume, "get_session_factory", lambda: _FakeFactory())
 
     outs = []
-    async for evt in resume.resume_from_checkpoint("s1", "missing-id"):
-        outs.append(evt)
+    async for sse_bytes in resume.resume_from_checkpoint("s1", "missing-id"):
+        outs.append(_decode(sse_bytes))
 
-    assert outs, "expected at least one SSE dict"
+    assert outs, "expected at least one SSE chunk"
     assert outs[0]["event"] == "error"
     assert "missing-id" in outs[0]["message"] or "not found" in outs[0]["message"]
 
 
 @pytest.mark.asyncio
-async def test_resume_already_resolved_yields_error(monkeypatch):
-    """checkpoint 已 resolved(pending_confirmation=False)→ yield error。"""
+async def test_resume_already_resolved_yields_error_bytes(monkeypatch):
+    """checkpoint 已 resolved(pending_confirmation=False)→ yield SSE error 字节。"""
     from app.domain.agent.langgraph_nodes import resume
 
     class _AlreadyResolved:
@@ -72,8 +70,8 @@ async def test_resume_already_resolved_yields_error(monkeypatch):
     monkeypatch.setattr(resume, "get_session_factory", lambda: _FakeFactory())
 
     outs = []
-    async for evt in resume.resume_from_checkpoint("s1", "ckpt1"):
-        outs.append(evt)
+    async for sse_bytes in resume.resume_from_checkpoint("s1", "ckpt1"):
+        outs.append(_decode(sse_bytes))
 
     assert outs
     assert outs[0]["event"] == "error"
@@ -81,8 +79,8 @@ async def test_resume_already_resolved_yields_error(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_resume_returns_async_iterator_of_dicts(monkeypatch):
-    """resume_from_checkpoint 是 async generator,产出 dict(agent_chat 包装 SSE)。"""
+async def test_resume_returns_async_iterator_of_bytes(monkeypatch):
+    """resume_from_checkpoint 是 async generator,产出 bytes(agent_chat 透传)。"""
     from app.domain.agent.langgraph_nodes import resume
 
     class _RepoMissing:
@@ -94,5 +92,5 @@ async def test_resume_returns_async_iterator_of_dicts(monkeypatch):
 
     agen = resume.resume_from_checkpoint("s1", "x")
     first = await agen.__anext__()
-    assert isinstance(first, dict)
-    assert first["event"] == "error"
+    assert isinstance(first, bytes)
+    assert _decode(first)["event"] == "error"
