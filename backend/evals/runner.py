@@ -173,10 +173,12 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
         dict 含 overall_match / tool_call_match / handoff_match / sse_event_count_equal
 
     注:T9 parity — 用临时 SQLite + init_db + 预建 session + monkeypatch
-    全局 session factory,避免 production DB 状态污染 + agent_messages FK 约束失败。
+    全局 session factory + mock LLM(固定 tool_calls 返回),
+    避免真实 LLM 非确定性导致 token-level 差异让 parity 永远不达标。
     """
     import os
     import tempfile
+    from unittest.mock import AsyncMock, patch
 
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -207,6 +209,47 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
     import app.core.db as core_db
     core_db._session_factory = factory
 
+    # Mock LLMClient(react_loop 和 react_graph 共用) — 固定返回 text-only,
+    # 避免真实 LLM 非确定性 + 避免外网调用
+    class _StubLLM:
+        last_call_duration_ms = 0
+
+        def __init__(self, settings=None, *args, **kwargs):
+            pass
+
+        def primary_provider_name(self):
+            return "stub"
+
+        async def chat_with_tools(self, messages, tools):
+            return {"content": "stub response", "tool_calls": None, "usage": None}
+
+    # patch react_loop.LLMClient 和 react_graph.LLMClient
+    # 关键:patch `app.domain.llm_client.LLMClient`(真正源头)而非 react_loop 模块
+    # 属性(react_loop 通过 from X import Y 拿到,但 monkeypatch 失败)
+    import app.domain.agent.react_loop as rl_mod
+    import app.domain.agent.react_graph as rg_mod
+    import app.domain.llm_client as llm_client_mod
+
+    rl_patcher = patch.object(rl_mod, "LLMClient", _StubLLM)
+    rg_patcher = patch.object(rg_mod, "LLMClient", _StubLLM)
+    src_patcher = patch.object(llm_client_mod, "LLMClient", _StubLLM)
+    rl_patcher.start()
+    rg_patcher.start()
+    src_patcher.start()
+
+    # Mock ToolExecutor(避免真实工具外网调用)
+    class _StubTE:
+        def __init__(self, session_id):
+            self.session_id = session_id
+
+        async def execute(self, name, args):
+            return {"echo": args or {}, "name": name}
+
+    # patch react_loop.ToolExecutor 和 react_graph._tool_node 内部 import 路径
+    import app.domain.agent.tool_executor as te_mod
+    te_patcher = patch.object(te_mod, "ToolExecutor", _StubTE)
+    te_patcher.start()
+
     overall_matches: list[float] = []
     tool_matches: list[float] = []
     handoff_matches: list[float] = []
@@ -217,32 +260,38 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
         async with factory() as session:
             await AgentRepository(session).create_session(title=f"compare-{c['session_id']}")
 
-    for c in cases:
-        react_chunks = await _collect_sse(_run_react_loop_turn, c["session_id"], c["message"])
-        lang_chunks = await _collect_sse(_run_langgraph_turn, c["session_id"], c["message"])
+    try:
+        for c in cases:
+            react_chunks = await _collect_sse(_run_react_loop_turn, c["session_id"], c["message"])
+            lang_chunks = await _collect_sse(_run_langgraph_turn, c["session_id"], c["message"])
 
-        # text 相似度(LangGraph output 与 react_loop 一致应为 ≥95%)
-        react_text = "".join(
-            x.get("content", "") for x in react_chunks
-            if x.get("event") == "assistant_message"
-        )
-        lang_text = "".join(
-            x.get("content", "") for x in lang_chunks
-            if x.get("event") == "assistant_message"
-        )
-        overall_matches.append(_rouge_l(react_text, lang_text))
+            # text 相似度(LangGraph output 与 react_loop 一致应为 ≥95%)
+            react_text = "".join(
+                x.get("content", "") for x in react_chunks
+                if x.get("event") == "assistant_message"
+            )
+            lang_text = "".join(
+                x.get("content", "") for x in lang_chunks
+                if x.get("event") == "assistant_message"
+            )
+            overall_matches.append(_rouge_l(react_text, lang_text))
 
-        # tool_call 一致
-        react_tools = {x.get("tool_name") for x in react_chunks if x.get("event") == "tool_call_start"}
-        lang_tools = {x.get("tool_name") for x in lang_chunks if x.get("event") == "tool_call_start"}
-        tool_matches.append(1.0 if react_tools == lang_tools else 0.0)
+            # tool_call 一致
+            react_tools = {x.get("tool_name") for x in react_chunks if x.get("event") == "tool_call_start"}
+            lang_tools = {x.get("tool_name") for x in lang_chunks if x.get("event") == "tool_call_start"}
+            tool_matches.append(1.0 if react_tools == lang_tools else 0.0)
 
-        # handoff event 一致
-        react_handoff = sum(1 for x in react_chunks if x.get("event") == "human_confirmation_required")
-        lang_handoff = sum(1 for x in lang_chunks if x.get("event") == "human_confirmation_required")
-        handoff_matches.append(1.0 if react_handoff == lang_handoff else 0.0)
+            # handoff event 一致
+            react_handoff = sum(1 for x in react_chunks if x.get("event") == "human_confirmation_required")
+            lang_handoff = sum(1 for x in lang_chunks if x.get("event") == "human_confirmation_required")
+            handoff_matches.append(1.0 if react_handoff == lang_handoff else 0.0)
 
-        sse_counts.append(len(react_chunks) == len(lang_chunks))
+            sse_counts.append(len(react_chunks) == len(lang_chunks))
+    finally:
+        rl_patcher.stop()
+        rg_patcher.stop()
+        src_patcher.stop()
+        te_patcher.stop()
 
     report = {
         "overall_match": sum(overall_matches) / len(overall_matches) if overall_matches else 1.0,
