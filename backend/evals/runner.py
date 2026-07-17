@@ -131,29 +131,9 @@ async def run_all() -> EvalReport:
     )
 
 
-if __name__ == "__main__":
-    import sys
-
-    # CLI: --compare 双跑 react_loop + langgraph 模式
-    if "--compare" in sys.argv:
-        from pathlib import Path
-
-        from .cases import EVAL_CASES
-
-        out = Path("reports/eval/diff")
-        cases = [
-            {"session_id": c.id, "message": c.query}
-            for c in EVAL_CASES[:10]
-        ]
-        report = asyncio.run(compare_evals(cases, output_dir=out))
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-    else:
-        report = asyncio.run(run_all())
-        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
-
-
 # ===========================================================================
 # v0.8 — Compare 双跑 (spec §10.1 / Task 13)
+# 注:这部分的函数定义移到 __main__ 之前,确保 main block 调用时函数已定义
 # ===========================================================================
 import json
 from pathlib import Path
@@ -191,13 +171,51 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
 
     Returns:
         dict 含 overall_match / tool_call_match / handoff_match / sse_event_count_equal
+
+    注:T9 parity — 用临时 SQLite + init_db + 预建 session + monkeypatch
+    全局 session factory,避免 production DB 状态污染 + agent_messages FK 约束失败。
     """
+    import os
+    import tempfile
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.core.db import init_db
     from app.domain.agent.dispatch import _run_react_loop_turn, _run_langgraph_turn
+    from app.models.orm import Base
+    from app.repositories.agent_repo import AgentRepository
+
+    # 临时 DB(避免污染 production)
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    engine = create_async_engine(db_url)
+
+    # init schema(导入所有 ORM model)
+    from app.models import orm as _orm_v01  # noqa: F401
+    try:
+        from app.models import orm_v04 as _orm_v04  # noqa: F401
+    except ImportError:
+        pass
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # Monkeypatch 全局 _session_factory(react_loop / langgraph 内部都用 get_session_factory)
+    import app.core.db as core_db
+    core_db._session_factory = factory
 
     overall_matches: list[float] = []
     tool_matches: list[float] = []
     handoff_matches: list[float] = []
     sse_counts: list[bool] = []
+
+    # 预建 session
+    for c in cases:
+        async with factory() as session:
+            await AgentRepository(session).create_session(title=f"compare-{c['session_id']}")
 
     for c in cases:
         react_chunks = await _collect_sse(_run_react_loop_turn, c["session_id"], c["message"])
@@ -245,7 +263,37 @@ sse_event_count_equal: {report['sse_event_count_equal']}
 """,
         encoding="utf-8",
     )
+
+    # 清理临时 DB
+    await engine.dispose()
+    try:
+        os.remove(db_path)
+    except OSError:
+        pass
+
     return report
+
+
+if __name__ == "__main__":
+    import sys
+
+    # CLI: --compare 双跑 react_loop + langgraph 模式
+    if "--compare" in sys.argv:
+        from pathlib import Path
+
+        from .cases import EVAL_CASES
+
+        out = Path("reports/eval/diff")
+        cases = [
+            # EvalCase 无 id 字段,用 query 派生稳定 session_id(hash 截断)
+            {"session_id": f"compare-{hash(c.query) & 0xffffff:06x}", "message": c.query}
+            for c in EVAL_CASES[:10]
+        ]
+        report = asyncio.run(compare_evals(cases, output_dir=out))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        report = asyncio.run(run_all())
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 
 __all__ = ["EvalReport", "run_all", "compare_evals"]  # noqa: F822
