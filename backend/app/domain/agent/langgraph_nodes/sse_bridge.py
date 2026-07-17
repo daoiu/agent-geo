@@ -121,6 +121,8 @@ class SSEBridge:
 
         # 1. assistant_message — T6:不再依赖 on_chat_model_stream;改在 on_chain_end
         # 时从最后一条 AIMessage 取 content(react_loop 单事件 + 完整 content 等价)
+        # 同一 on_chain_end 事件也 yield turn_complete(react_loop 等价:turn_complete
+        # 是 turn 收尾单事件;assistant_message 先出,turn_complete 后出)
         if ev == "on_chain_end" and not self._has_interrupt(data):
             output = data.get("output") or {}
             msgs = output.get("messages") if isinstance(output, dict) else None
@@ -143,6 +145,14 @@ class SSEBridge:
                     if not isinstance(content, str):
                         content = str(content)
                     yield _emit("assistant_message", {"content": content or ""})
+
+            # T5 — turn_complete 前 fire-and-forget 触发记忆蒸馏 + 收尾 emit metrics
+            if output and not isinstance(output, str):
+                history = self._history_from_output(output)
+                if history is not None:
+                    schedule_extract(self._device_id, self._session_id or "", history)
+                self._emit_metrics_once("turn_complete")
+                yield _emit("turn_complete", {})
 
         # 2. tool_call_start — T6:tool_call_id 暂从 on_chain_end 时 AIMessage.tool_calls
         # 取(节点级);on_tool_start 仍用 name 占位,real id 在 tool_call_result 时再校准
@@ -220,17 +230,6 @@ class SSEBridge:
                     "resume_token": first.id if first else None,
                 }
                 yield _emit("human_confirmation_required", payload)
-
-        # 5. turn_complete (on_chain_end without __interrupt__)
-        elif ev == "on_chain_end" and not self._has_interrupt(data):
-            output = data.get("output", {})
-            if output and not isinstance(output, str):
-                # T5 — turn_complete 前 fire-and-forget 触发记忆蒸馏
-                history = self._history_from_output(output)
-                if history is not None:
-                    schedule_extract(self._device_id, self._session_id or "", history)
-                self._emit_metrics_once("turn_complete")
-                yield _emit("turn_complete", {})
 
         # 其余事件(元数据等)不 emit,保持字节级一致
 
