@@ -104,6 +104,34 @@ class TestQuery:
         results = index.query("test", top_k=5)
         assert results == []
 
+    def test_query_by_embedding_uses_query_embeddings(self, mock_chroma) -> None:
+        """传 query_embedding 应走 query_embeddings 参数(避免 ChromaDB 默认 384 维 function)。"""
+        MockChroma, mock_client, mock_collection = mock_chroma
+        mock_collection.query.return_value = {
+            "ids": [["c1"]], "documents": [["x"]], "metadatas": [[{}]], "distances": [[0.0]]
+        }
+        index = VectorIndex("kb1")
+        emb = [0.1] * 512
+        index.query(query_embedding=emb, top_k=5)
+        call_kwargs = mock_collection.query.call_args.kwargs
+        assert "query_embeddings" in call_kwargs
+        assert call_kwargs["query_embeddings"] == [emb]
+        assert "query_texts" not in call_kwargs
+
+    def test_query_requires_text_or_embedding(self, mock_chroma) -> None:
+        """query_text 和 query_embedding 都不传应抛 ValueError。"""
+        MockChroma, mock_client, mock_collection = mock_chroma
+        index = VectorIndex("kb1")
+        with pytest.raises(ValueError, match="至少传一个"):
+            index.query(top_k=5)
+
+    def test_query_text_and_embedding_mutually_exclusive(self, mock_chroma) -> None:
+        """query_text 和 query_embedding 同时传应抛 ValueError。"""
+        MockChroma, mock_client, mock_collection = mock_chroma
+        index = VectorIndex("kb1")
+        with pytest.raises(ValueError, match="互斥"):
+            index.query("text", query_embedding=[0.1] * 512, top_k=5)
+
 
 class TestDelete:
     def test_delete_chunks(self, mock_chroma) -> None:

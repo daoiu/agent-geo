@@ -71,12 +71,37 @@ class VectorIndex:
             ],
         )
 
-    def query(self, query_text: str, top_k: int = 10) -> list[dict]:
-        """Query by semantic similarity. Returns list of {id, content, metadata, distance}."""
-        results = self._collection.query(
-            query_texts=[query_text],
-            n_results=top_k,
-        )
+    def query(
+        self,
+        query_text: str | None = None,
+        *,
+        query_embedding: list[float] | None = None,
+        top_k: int = 10,
+    ) -> list[dict]:
+        """Query by semantic similarity. Returns list of {id, content, metadata, distance}.
+
+        推荐路径:传 query_embedding(由调用方用 EmbeddingService.embed 预计算,512 维),
+        避免 ChromaDB 用默认 384 维英文 embedding function 与 bge-small-zh-v1.5 不一致。
+
+        query_text 路径保留向后兼容,但会触发 ChromaDB 内部 embedding 转换,
+        与当前 collection 的 bge 512 维向量不在同一空间,可能导致维度不匹配错误。
+        """
+        if query_embedding is None and query_text is None:
+            raise ValueError("query_text 和 query_embedding 必须至少传一个")
+        if query_embedding is not None and query_text is not None:
+            raise ValueError("query_text 和 query_embedding 互斥,只传一个")
+
+        if query_embedding is not None:
+            results = self._collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+            )
+        else:
+            # 向后兼容:走 ChromaDB 内部 embedding 转换(可能 384 维与 collection 512 维冲突)
+            results = self._collection.query(
+                query_texts=[query_text],
+                n_results=top_k,
+            )
         ids = results.get("ids", [[]])[0] if results.get("ids") else []
         docs = results.get("documents", [[]])[0] if results.get("documents") else []
         metas = results.get("metadatas", [[]])[0] if results.get("metadatas") else []

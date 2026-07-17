@@ -27,7 +27,7 @@
 - 🧠 **ChatGPT 风格智能助手** —— "帮我诊断小米" 一句话触发完整流程
 - 🔍 **白帽 GEO 诊断** —— 5 维度评分(权威性 / 相关性 / 结构 / 新鲜度 / 可验证)
 - 📚 **Hybrid RAG 知识库** —— ChromaDB 向量 + jieba 关键词 + RRF 融合,跨库召回
-- 📊 **RAG 评测闭环** —— 自建金标集(LLM 半合成 + 人工抽查),RAGAS 式三指标(faithfulness / answer_relevancy / context_precision)+ Recall@5 / MRR@5;当前基线 context_precision@5 = **0.25**,Recall@5 = 1.0 / MRR@5 = 0.875
+- 📊 **RAG 评测闭环** —— 自建金标集(LLM 半合成 + 人工抽查),RAGAS 式三指标(faithfulness / answer_relevancy / context_precision)+ Recall@5 / MRR@5;真混合检索基线 context_precision@5 = **0.25**,MRR@5 = 0.833,Recall@5 = 1.0
 - ✍️ **多 Agent 内容生成** —— 主 Agent → ContentWriterSpecialist Handoff,失败自动降级
 - 📊 **周期监控告警** —— APScheduler 每时 / 每日 / 每周,产出 monitor_snapshots
 - 🚀 **WordPress 自动发布** —— 多账号 / 审核队列

@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.db import get_session_factory
 from app.domain.knowledge.vector_index import VectorIndex
 from app.repositories.knowledge_repo import KnowledgeRepository
+from app.services.embedding import EmbeddingService
 
 logger = structlog.get_logger()
 
@@ -68,7 +69,9 @@ class HybridSearch:
     async def _hybrid_search(self, kb_id: str, query: str, top_k: int) -> list[dict]:
         settings = get_settings()
         index = VectorIndex(kb_id)
-        vector_results = index.query(query_text=query, top_k=settings.hybrid_top_k_vector)
+        # 用 EmbeddingService 预计算 query 向量(512 维),与 collection 同空间
+        query_embedding = EmbeddingService.embed([query])[0]
+        vector_results = index.query(query_embedding=query_embedding, top_k=settings.hybrid_top_k_vector)
         keyword_results = await self._keyword_search(kb_id, query, top_k=settings.hybrid_top_k_keyword)
         return rrf_fusion(vector_results, keyword_results, top_k=top_k, k=settings.hybrid_rrf_k)
 
@@ -122,11 +125,13 @@ class HybridSearch:
 
         vector_results: list[dict] = []
         kb_name_by_id = {kb.id: kb.name for kb in kb_list}
+        # 跨库路径:同一 query 一次算 embedding,所有 KB 共用(避免重复 embed)
+        shared_query_embedding = EmbeddingService.embed([query])[0]
         for kb in kb_list:
             try:
                 index = VectorIndex(kb.id)
                 hits = index.query(
-                    query_text=query,
+                    query_embedding=shared_query_embedding,
                     top_k=settings.hybrid_top_k_vector,
                 )
                 for hit in hits:

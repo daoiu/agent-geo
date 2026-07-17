@@ -32,7 +32,7 @@
 - **HITL**：4 种 kind（decision / input / progress_confirm）；断点续跑（pending_confirmation → checkpoint → 接力 ReAct）；任意 message_id replay（调试 / A/B）；reject reason 反向写入 history 进入下次 prompt
 - **记忆**：scope-key 隔离；L2 偏好蒸馏 + 向量近邻语义去重 + 阈值触发 LLM consolidate 合并去重；Fire-and-forget 持后台 task 防 GC
 - **RAG**：ChromaDB 向量 + jieba 关键词 → **Reciprocal Rank Fusion** 融合；单库 / 跨库双分支；Chroma 失败优雅降级走关键词；bge-small-zh-v1.5 + 模块级单例缓存
-- **RAG 评测闭环**：自建检索金标集（LLM 半合成 + 人工抽查），RAGAS 式三指标（faithfulness / answer_relevancy / context_precision）+ Recall@5 / MRR@5 自动化评测；当前基线 context_precision@5 = 0.25（混合检索优化前的真实精确率信号），Recall@5 = 1.0 / MRR@5 = 0.875（受小数据集 4 条 + HybridSearch fallback 到 keyword 影响，量化对照需扩到 ≥50 条后重测）
+- **RAG 评测闭环**：自建检索金标集（LLM 半合成 + 人工抽查），RAGAS 式三指标（faithfulness / answer_relevancy / context_precision）+ Recall@5 / MRR@5 自动化评测；当前真混合检索基线 **context_precision@5 = 0.25**（精确率最可信信号）、MRR@5 = 0.833、Recall@5 = 1.0（受 4-chunks 小数据集 + 每 query 1-relevant 标注结构影响，量化对照锚点已生效，后续扩 ≥50 条 + Cross-Encoder 重排可做对照）
 - **Multi-Agent**：Handoff 协议（HandoffRequest / HandoffResult / SpecialistHandoffError）；5 条工程纪律（幂等键 / 超时 / 状态隔离 / 失败降级 / 成本归因）
 - **LLM 路由**：OpenAI / DeepSeek / Kimi / MiniMax 通过 `*_API_KEY` env 自动发现；自适应 cheap / standard / premium 三档；复杂度分类（query 长度 + tool 数量 + 显式 hint）；无 key 自动降级；Decimal 计算 USD 成本；turn 级计时 + 慢查询告警
 
@@ -95,7 +95,8 @@
    Chroma 失败优雅降级走关键词，**绝不返回 5xx**；embedding 用 bge-small-zh-v1.5（512 维），模块级单例缓存 + 50 ms 命中。
    前端跨库检索 200 ms debounce，搜索体验顺滑。
    **评测闭环**：自建金标集（LLM 半合成 + 人工抽查），RAGAS 式三指标（faithfulness / answer_relevancy / context_precision）+ Recall@5 / MRR@5；
-   当前基线 **context_precision@5 = 0.25**（最可信的真实精确率信号，混合检索优化前的对照锚点），后续 Cross-Encoder 重排 / 查询改写 / 语义缓存均以此为基线对照。
+   当前真混合检索基线 **context_precision@5 = 0.25**（最可信的真实精确率信号，混合检索优化前的对照锚点）、MRR@5 = 0.833，后续 Cross-Encoder 重排 / 查询改写 / 语义缓存均以此为基线对照。
+   **修复了 query 端维度不匹配**：`VectorIndex.query()` 增加 `query_embedding` 参数，HybridSearch 调前用 `EmbeddingService.embed` 预计算 query 向量，避免 ChromaDB 默认 384 维英文 function 与 bge 512 维中文向量空间冲突；增加 3 个测试覆盖新路径与参数校验。
 
 5. **上下文工程是分水岭**
    实现了 `noop / truncate / drop / summarize` 四策略自适应压缩，决策函数 `_decide_strategy` 纯函数化便于单测。
