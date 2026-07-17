@@ -26,17 +26,26 @@ LangGraph 成为**唯一** agent 执行路径,删除 `react_loop.py` 驱动逻�
 - parity gate:`compare_evals` 的 `overall_match ≥ 0.95`,且 `tool_call_match` / `handoff_match` 全等、`sse_event_count_equal` 为真。
 - react_loop:**本期直接删**(不留逃生舱),`langgraph_enabled` flag 一并移除。
 
-## 现状缺口(react_loop 有、LangGraph 缺)
+## 现状缺口(深读代码后的完整清单)
+
+> ⚠️ LangGraph 路径是「结构 diff 里程碑」的骨架,非生产就绪。深读后确认缺口比初版大:
 
 | 能力 | react_loop | LangGraph 现状 | 处置 |
 |---|---|---|---|
 | ReAct 主循环 | `_drive_react_loop` | ✅ react_graph | 保留图 |
+| **DB 持久化(每条 assistant/tool 落库)** | `AgentRepository.create_message` | ❌ **完全缺失,历史不累积** | 图节点内补落库 |
+| **记忆加载**(memory_chunk 填充 + index_segment) | `MemoryService.build_memory_segment` / `load_relevant_memories` | ❌ memory_chunk 恒 None | 补记忆预热节点 |
 | 消息构建 / 记忆 prepend | `build_messages` / `_apply_memory_prepend` | 部分(memory_snapshot_node) | 抽纯函数共享 |
 | token 截断 | `_truncate_by_tokens` | ✅ truncate_messages_node | 抽纯函数共享 |
-| metrics 汇总 / 发射 | `_emit_metrics` / `_accumulate` | ❌ 缺 | 补到图链路 |
+| metrics 汇总 / 发射 / 成本 | `_emit_metrics` / `_accumulate` / `compute_cost` | ❌ 缺 | 补到图链路 |
 | turn 后记忆蒸馏(fire-and-forget) | `_do_extract_after_turn` | ❌ 缺 | 补到图结束后 |
-| HITL 断点续跑 | `run_agent_turn_from_checkpoint` | ⚠️ interrupt 有,API 硬绑旧路径 | 迁到图 resume |
-| 8 类 SSE 事件完整性 | ✅ | ⚠️ 需核对 sse_bridge 全覆盖 | 核对补齐 |
+| **HITL 三种 kind** | decision / input / progress_confirm 全支持 | ⚠️ bridge 仅 `human_confirmation_required` | 补 input_required / progress_confirm |
+| **HITL generate_article 确认续跑** | `run_agent_turn_from_checkpoint`(130 行) | ❌ 缺 | 图 resume + Command 重建 |
+| assistant_message 事件 | 直接 yield | ⚠️ bridge 听 `on_chat_model_stream`,但 `_agent_node` 用非流式 `chat_with_tools`,可能不触发 | 改 bridge 从节点输出取 |
+| tool_call_id 语义 | 真实 tc id | ⚠️ bridge 用工具名当 id | 对齐真实 id |
+| 8 类 SSE 事件完整性 | ✅ | ⚠️ 需逐一核对 | 核对补齐 |
+
+> 决策(仍本期直接删 react_loop):以上全部在图上重建到生产级 → parity gate 达标 → 同期删除 react_loop + flag。风险由 parity gate + 全绿测试 + 手动 HITL 走查兜底。
 
 ## 重构策略(消除重复,不重写)
 
