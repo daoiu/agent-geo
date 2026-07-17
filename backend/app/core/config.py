@@ -152,6 +152,14 @@ class Settings(BaseSettings):
     # 默认 False 沿用 react_loop.py，生产切流走 env LANGGRAPH_ENABLED=true
     langgraph_enabled: bool = False
 
+    # ②b Agent 编排层（spec agent-orchestrator §6.2.1）
+    # 默认 False 沿用 ②a 统一图，开启后 router + reflection + plan-execute 接管
+    agent_orchestrator_enabled: bool = False
+    reflection_enabled: bool = True
+    reflection_min_score: int = 60
+    reflection_max_retries: int = 2
+    plan_execute_max_steps: int = 6
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
