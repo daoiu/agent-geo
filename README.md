@@ -341,6 +341,30 @@ MonitorSpecialist           ← APScheduler 调度,产出 monitor_snapshots
 | `PUBLISH_TIMEOUT_S` | WordPress 发布超时(默认 30s) |
 | `NOTIFY_EMAIL_DEFAULT` | 默认收件人 |
 
+### 多模态摄取(③ OCR + VLM)
+
+PDF / DOCX / Markdown 中的内嵌图片会在解析时自动走 **OCR(本地)+ Vision API** 双通道,合并后写回正文,不再信息丢失。
+
+| 组件 | 用途 | 缺省 / 软降级 |
+|---|---|---|
+| `easyocr` | 本地文字识别(`ch_sim`+`en`) | **模型未下载 → OCR 软降级,返回空串**(纯 VLM 或占位) |
+| `VISION_API_KEY` | OpenAI 兼容 Vision API key | 留空 → 回退 `OPENAI_API_KEY`;都缺 → 跳过语义描述 |
+| `VISION_API_BASE` / `VISION_MODEL` | 自定义 endpoint / 模型 | 留空 → 回退 `OPENAI_BASE_URL` / `OPENAI_MODEL` / `gpt-4o-mini` |
+| `VISION_MAX_TOKENS` | 描述长度上限 | 默认 256 |
+| `MULTIMODAL_ENABLED` | 总开关 | 默认 `true`;`false` → 完全跳过图片处理,解析行为与旧版一致 |
+
+**一次性前置(本地环境):**
+
+```bash
+cd backend
+pip install -r requirements.txt        # 含 easyocr
+# 触发 EasyOCR 下载三个 .pth 到 ~/.EasyOCR/model/
+python -c "import easyocr; easyocr.Reader(['ch_sim','en'], gpu=False)"
+# 期望产物:craft_mlt_25k.pth  english_g2.pth  zh_sim_g2.pth
+```
+
+> **沙箱 / 离线场景**:不补全模型也不影响解析 — 任何图片 → OCR 返回空 → VLM 描述(或 `[图片：<alt>]` 占位),纯文本 PDF 行为完全不变。
+
 ### 安全(SSRF)
 
 | 变量 | 默认 | 描述 |
