@@ -140,4 +140,29 @@ def parse_docx(path: str) -> str:
             if row_text:
                 parts.append(row_text)
 
+    parts.extend(_describe_docx_images(document))
     return "\n\n".join(parts)
+
+
+def _describe_docx_images(document) -> list[str]:
+    """从 docx rels 抽出图片,OCR+VLM 描述。失败静默,返回描述列表。"""
+    descs: list[str] = []
+    try:
+        rels = document.part.rels
+    except Exception:  # noqa: BLE001
+        return descs
+    i = 0
+    for _rid, rel in rels.items():
+        if "image" not in getattr(rel, "reltype", ""):
+            continue
+        try:
+            blob = rel.target_part.blob
+            mime = rel.target_part.content_type or "image/png"
+            i += 1
+            b64 = base64.b64encode(blob).decode("ascii")
+            desc = describe_image(b64, mime, f"DOCX图片{i}")
+            if desc:
+                descs.append(desc)
+        except Exception:  # noqa: BLE001
+            continue
+    return descs
