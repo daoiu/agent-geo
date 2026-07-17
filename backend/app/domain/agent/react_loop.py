@@ -44,9 +44,6 @@ from app.repositories.agent_repo import AgentRepository
 # 便于 env 覆盖，调用方 get_settings().max_react_iterations。
 logger = structlog.get_logger()
 
-# Fire-and-forget 持有的后台任务集合,避免被 GC
-_PENDING_EXTRACTS: set[asyncio.Task] = set()
-
 
 @asynccontextmanager
 async def _open_agent_repo(
@@ -72,35 +69,20 @@ from app.domain.agent.turn_helpers import (  # noqa: F401  re-export 保持既�
     build_messages,
     _accumulate,
     _apply_memory_prepend,
+    _do_extract_after_turn,  # T5:仅供测试 monkeypatch,生产路径走 schedule_extract
     _emit_metrics,
     _get_tiktoken_encoder,
     _new_metrics,
     _orm_to_dict,
+    _PENDING_EXTRACTS,  # T5:re-export,旧测试 monkeypatch 仍可工作
     _truncate_by_tokens,
+    schedule_extract,
 )
 
 
-async def _do_extract_after_turn(
-    device_id: str | None,
-    session_id: str,
-    history: list[dict],
-) -> None:
-    """turn_complete 后 fire-and-forget 调。失败静默,不影响 turn。"""
-    try:
-        factory = get_session_factory()
-        async with factory() as session:
-            svc = MemoryService(session)
-            await svc.extract(
-                scope=scope_key(device_id, session_id),
-                messages=history,
-                session_id=session_id,
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "extract_after_turn_failed",
-            session_id=session_id,
-            error=str(e),
-        )
+# _do_extract_after_turn 定义已迁到 turn_helpers.py(T5),通过模块顶部
+# ``from app.domain.agent.turn_helpers import _do_extract_after_turn``
+# 拿到真函数引用。L293 的 fire-and-forget 调度改走 schedule_extract。
 
 
 # _new_metrics / _accumulate / _emit_metrics 已迁到 turn_helpers.py（T1）,
@@ -299,11 +281,9 @@ async def _drive_react_loop(
                 history_rows = await repo.list_messages(session_id)
             history = [_orm_to_dict(m) for m in history_rows]
         else:
-            task = asyncio.create_task(
-                _do_extract_after_turn(device_id, session_id, history)
-            )
-            _PENDING_EXTRACTS.add(task)
-            task.add_done_callback(_PENDING_EXTRACTS.discard)
+            # T5 — schedule_extract 封装了 asyncio.create_task + _PENDING_EXTRACTS
+            # 防 GC + done 回调移除。sse_bridge 也走同一函数,消除重复。
+            schedule_extract(device_id, session_id, history)
             _emit_metrics(
                 agg, session_id, device_id, "turn_complete",
                 turn_duration_ms=(time.perf_counter() - turn_start) * 1000,

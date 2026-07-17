@@ -12,12 +12,15 @@ v0.6+ P1#22(Task 24):``_emit_metrics`` 增加 turn_duration_ms + cost_usd。
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from decimal import Decimal
 
 import structlog
 
 from app.core.config import get_settings
+from app.core.db import get_session_factory
+from app.domain.agent.memory import MemoryService, scope_key
 from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.models.orm_v04 import AgentMessageORM
 
@@ -26,6 +29,10 @@ logger = structlog.get_logger()
 # v0.6+ P1#11(Task 12):tiktoken 编码器懒加载缓存。None 表示未初始化。
 _TIKTOKEN_ENCODER: object | None = None
 _TIKTOKEN_ENCODING_NAME: str | None = None
+
+# Fire-and-forget 持有的后台任务集合,避免被 GC。
+# T5 — 从 react_loop.py 迁出,sse_bridge 与 react_loop 共用 schedule_extract。
+_PENDING_EXTRACTS: set[asyncio.Task] = set()
 
 
 def _get_tiktoken_encoder(encoding_name: str | None = None):
@@ -275,3 +282,45 @@ def _emit_metrics(
         turn_duration_ms=turn_duration_ms,
         cost_usd=str(cost_usd) if cost_usd is not None else None,
     )
+
+
+# ===========================================================================
+# v0.6 P1.6 — turn 后记忆蒸馏(fire-and-forget)
+# ===========================================================================
+
+
+async def _do_extract_after_turn(
+    device_id: str | None,
+    session_id: str,
+    history: list[dict],
+) -> None:
+    """turn_complete 后 fire-and-forget 调。失败静默,不影响 turn。
+
+    T5 — 从 react_loop.py 迁出,sse_bridge 与 react_loop 共用 schedule_extract。
+    """
+    try:
+        factory = get_session_factory()
+        async with factory() as session:
+            svc = MemoryService(session)
+            await svc.extract(
+                scope=scope_key(device_id, session_id),
+                messages=history,
+                session_id=session_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "extract_after_turn_failed",
+            session_id=session_id,
+            error=str(e),
+        )
+
+
+def schedule_extract(device_id: str | None, session_id: str, history: list[dict]) -> None:
+    """fire-and-forget 调度记忆蒸馏(react_loop 与 sse_bridge 共用)。
+
+    设计:asyncio.create_task 创建后台 task,_PENDING_EXTRACTS 持有引用防 GC,
+    task.done 时回调移除。调用方不需 await,失败静默不影响主流程。
+    """
+    task = asyncio.create_task(_do_extract_after_turn(device_id, session_id, history))
+    _PENDING_EXTRACTS.add(task)
+    task.add_done_callback(_PENDING_EXTRACTS.discard)

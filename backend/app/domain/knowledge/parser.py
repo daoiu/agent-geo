@@ -1,6 +1,7 @@
 """Document parsers: extract plain text from PDF/Word/MD/TXT files."""
 from __future__ import annotations
 
+import base64
 import functools
 from collections.abc import Callable
 from pathlib import Path
@@ -11,6 +12,7 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 from app.domain.exceptions import DocumentParseError
+from app.services.multimodal.image_describe import describe_image
 
 T = TypeVar("T")
 
@@ -82,12 +84,39 @@ def parse_pdf(path: str) -> str:
         ) from e
 
     texts: list[str] = []
-    for page in reader.pages:
+    for page_idx, page in enumerate(reader.pages):
         try:
-            texts.append(page.extract_text() or "")
+            page_text = page.extract_text() or ""
         except Exception as e:  # noqa: BLE001
-            texts.append(f"[page extraction failed: {e}]")
-    return "\n\n".join(t for t in texts if t.strip())
+            page_text = f"[page extraction failed: {e}]"
+        image_descs: list[str] = []
+        try:
+            for img_idx, img in enumerate(getattr(page, "images", []) or []):
+                try:
+                    img_mime = img.image_type
+                    img_mime = (
+                        "image/" + img_mime[1:]
+                        if img_mime.startswith("/")
+                        else (
+                            img_mime
+                            if img_mime.startswith("image/")
+                            else "image/" + img_mime
+                        )
+                    )
+                    b64 = base64.b64encode(img.data).decode("ascii")
+                    desc = describe_image(
+                        b64, img_mime, f"PDF第{page_idx + 1}页图{img_idx + 1}"
+                    )
+                    if desc:
+                        image_descs.append(desc)
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            pass
+        merged = page_text + ("\n" + "\n".join(image_descs) if image_descs else "")
+        if merged.strip():
+            texts.append(merged)
+    return "\n\n".join(texts)
 
 
 @_handle_parse_errors

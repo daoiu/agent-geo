@@ -25,7 +25,11 @@ from typing import Any
 
 from langchain_core.runnables.schema import StreamEvent
 
-from app.domain.agent.turn_helpers import _emit_metrics, _new_metrics
+from app.domain.agent.turn_helpers import (
+    _emit_metrics,
+    _new_metrics,
+    schedule_extract,
+)
 
 
 def _emit(event_type: str, data: dict) -> bytes:
@@ -165,6 +169,10 @@ class SSEBridge:
         elif ev == "on_chain_end" and not self._has_interrupt(data):
             output = data.get("output", {})
             if output and not isinstance(output, str):
+                # T5 — turn_complete 前 fire-and-forget 触发记忆蒸馏
+                history = self._history_from_output(output)
+                if history is not None:
+                    schedule_extract(self._device_id, self._session_id or "", history)
                 self._emit_metrics_once("turn_complete")
                 yield _emit("turn_complete", {})
 
@@ -221,6 +229,31 @@ class SSEBridge:
         if isinstance(output, dict):
             return "__interrupt__" in output
         return False
+
+    def _history_from_output(self, output: dict) -> list[dict] | None:
+        """从 agent 节点 output 提取 messages,转 dict-style 给 schedule_extract。"""
+        msgs = output.get("messages") if isinstance(output, dict) else None
+        if not msgs:
+            return None
+        out: list[dict] = []
+        for m in msgs:
+            if isinstance(m, dict):
+                out.append(m)
+                continue
+            role = {"human": "user", "ai": "assistant", "tool": "tool", "system": "system"}.get(
+                getattr(m, "type", "user"), "user"
+            )
+            content = getattr(m, "content", "")
+            if not isinstance(content, str):
+                content = str(content)
+            entry: dict = {"role": role, "content": content}
+            if hasattr(m, "tool_calls") and getattr(m, "tool_calls", None):
+                # 不展开 tool_calls — schedule_extract 走 db history reload 即可
+                entry["tool_calls"] = list(getattr(m, "tool_calls", []))
+            if role == "tool" and hasattr(m, "tool_call_id"):
+                entry["tool_call_id"] = m.tool_call_id
+            out.append(entry)
+        return out
 
     def _initial_state(self, fixture_input: dict) -> dict:
         from langchain_core.messages import HumanMessage
