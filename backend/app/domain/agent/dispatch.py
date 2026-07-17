@@ -1,7 +1,11 @@
-"""v0.8 dispatch(spec §10.2):按 Settings.langgraph_enabled 路由 run_agent_turn。
+"""v0.8 dispatch(spec §10.2)+ ②b orchestrator 灰度(spec agent-orchestrator §6.2.6)。
 
-默认 flag=False 沿用 react_loop,保留 1 个里程碑;
-切流 flag=True 后 langgraph 接管(SSEBridge.replay 包 react_graph.astream_events)。
+路由优先级(三个独立灰度 flag):
+  agent_orchestrator_enabled=True → run_orchestrated(②b 编排层)
+  否则 langgraph_enabled=True      → _run_langgraph_turn(②a 统一图)
+  否则                              → _run_react_loop_turn(保留 v0.8 react_loop 后备)
+
+默认全 False 仍走 react_loop,逐级灰度;rollback = 一行 env。
 """
 from __future__ import annotations
 
@@ -30,13 +34,17 @@ async def _run_langgraph_turn(session_id: str, message: str) -> AsyncIterator[by
 
 
 async def run_agent_turn(session_id: str, message: str) -> AsyncIterator[bytes]:
-    """api 层调用入口(spec §10.2)。
+    """api 层调用入口(spec §10.2 / agent-orchestrator §6.2.6)。"""
+    settings = get_settings()
+    if settings.agent_orchestrator_enabled:
+        from app.domain.agent.orchestrator.graph import run_orchestrated
 
-    根据 Settings.langgraph_enabled 路由到 react_loop 或 langgraph 路径。
-    """
-    if get_settings().langgraph_enabled:
+        async for sse in run_orchestrated(session_id, message):
+            yield sse
+        return
+    if settings.langgraph_enabled:
         async for sse in _run_langgraph_turn(session_id, message):
             yield sse
-    else:
-        async for sse in _run_react_loop_turn(session_id, message):
-            yield sse
+        return
+    async for sse in _run_react_loop_turn(session_id, message):
+        yield sse
