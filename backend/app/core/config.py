@@ -160,6 +160,15 @@ class Settings(BaseSettings):
     reflection_max_retries: int = 2
     plan_execute_max_steps: int = 6
 
+    # ③ OCR+VLM 多模态摄取（spec 2026-07-17-multimodal-ocr-vlm-ingestion）
+    multimodal_enabled: bool = True
+    ocr_languages: list[str] = ["ch_sim", "en"]
+    ocr_gpu: bool = False
+    vision_api_key: str = ""
+    vision_api_base: str = ""
+    vision_model: str = ""
+    vision_max_tokens: int = 256
+
     @property
     def enabled_providers(self) -> list[str]:
         """Parse llm_providers into list."""
