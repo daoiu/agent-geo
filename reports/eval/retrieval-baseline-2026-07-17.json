@@ -1,0 +1,58 @@
+{
+  "total": 4,
+  "recall_at_5": 1.0,
+  "mrr_at_5": 0.875,
+  "faithfulness": 0.0,
+  "answer_relevancy": 0.777,
+  "context_precision": 0.25,
+  "llm_available": true,
+  "by_kb": {
+    "fbac45ba-e2b0-49ec-a6e9-d455d5eb3fb5": {
+      "count": 4,
+      "recall": 1.0
+    }
+  },
+  "note": "环境标注:embedding 维度不匹配(384 vs 512),HybridSearch 实际 fallback 到 keyword-only;金标集仅 4 条(1 个 KB / 4 chunks),Recall@5 受 top_k 完全覆盖影响严重;context_precision=0.25 是当前最可信的精确率信号。",
+  "details": [
+    {
+      "id": "fbac45ba-0",
+      "kb_id": "fbac45ba-e2b0-49ec-a6e9-d455d5eb3fb5",
+      "query": "北北云吞的创始人是谁？",
+      "recall": 1.0,
+      "mrr": 1.0,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.7949838454691667,
+      "context_precision": 0.25
+    },
+    {
+      "id": "fbac45ba-1",
+      "kb_id": "fbac45ba-e2b0-49ec-a6e9-d455d5eb3fb5",
+      "query": "北北云吞的招牌捶打肉馅有哪些配料？",
+      "recall": 1.0,
+      "mrr": 1.0,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.8599748964525019,
+      "context_precision": 0.25
+    },
+    {
+      "id": "fbac45ba-2",
+      "kb_id": "fbac45ba-e2b0-49ec-a6e9-d455d5eb3fb5",
+      "query": "招牌捶打大肉云吞多少钱？",
+      "recall": 1.0,
+      "mrr": 0.5,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.7354312686864451,
+      "context_precision": 0.25
+    },
+    {
+      "id": "fbac45ba-3",
+      "kb_id": "fbac45ba-e2b0-49ec-a6e9-d455d5eb3fb5",
+      "query": "这家云吞店有什么品牌特色亮点？",
+      "recall": 1.0,
+      "mrr": 1.0,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.7183138434051407,
+      "context_precision": 0.25
+    }
+  ]
+}

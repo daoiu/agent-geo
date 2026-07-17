@@ -21,10 +21,13 @@ _PROMPT = """你是评测数据标注员。基于下面这段知识库文本,提
 """
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 def _parse_qa(reply: str) -> tuple[str, str]:
-    cleaned = _FENCE_RE.sub("", reply).strip()
+    # 兼容推理模型(DeepSeek-R1 / QwQ 等):先剥 <think>...</think> 块
+    cleaned = _THINK_RE.sub("", reply)
+    cleaned = _FENCE_RE.sub("", cleaned).strip()
     try:
         obj = json.loads(cleaned)
         return str(obj["question"]), str(obj["answer"])

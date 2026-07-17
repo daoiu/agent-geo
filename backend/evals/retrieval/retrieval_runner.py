@@ -52,7 +52,7 @@ async def _generate_answer(query: str, contexts: list[str], llm) -> str:
     return await llm.simple_chat(prompt)
 
 
-async def run_baseline(items, search=None, llm=None, embed_fn=None, top_k: int = 5) -> RetrievalReport:
+async def run_baseline(items, search=None, llm=None, embed_fn=None, top_k: int = 5, note: str | None = None) -> RetrievalReport:
     if search is None:
         from app.services.hybrid_search import HybridSearch
         search = HybridSearch()
@@ -107,7 +107,7 @@ async def run_baseline(items, search=None, llm=None, embed_fn=None, top_k: int =
         llm_available=bool(getattr(llm, "available_providers", [])),
         by_kb=by_kb,
         details=details,
-        note="检索基线;LLM 指标在无 key 时为 0",
+        note=note or "检索基线;LLM 指标在无 key 时为 0",
     )
 
 
