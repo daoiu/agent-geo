@@ -47,6 +47,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.services.reindex import ReindexService
     reindex_stats = await ReindexService().reindex_all()
     logger.info("v0.5_reindex_done", **reindex_stats)
+    # ① 混合检索管道(2026-07-17) — 启动加载 GEO 领域词典,供 jieba/BM25 用
+    from app.services.retrieval.tokenizer import load_domain_dict
+    load_domain_dict(get_settings().geo_userdict_path)
     yield
     shutdown_scheduler()
     await dispose_db()

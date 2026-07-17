@@ -1,0 +1,17 @@
+BM25 100 n
+ChromaDB 100 n
+Claude-3.5 100 n
+Cross-Encoder 100 n
+GPT-4o 100 n
+HyDE 100 n
+LangChain 100 n
+LangGraph 100 n
+RAGAS 100 n
+RRF 100 n
+X 100 n
+bge-reranker 100 n
+向量检索 100 n
+小米 100 n
+混合检索 100 n
+生成式引擎优化 100 n
+重排 100 n
