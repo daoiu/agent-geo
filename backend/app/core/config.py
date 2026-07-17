@@ -91,6 +91,20 @@ class Settings(BaseSettings):
     hybrid_top_k_keyword: int = 20
     hybrid_rrf_k: int = 60
 
+    # ① 混合检索管道升级 — 查询改写 / 重排 / 语义缓存 / Redis / 词典
+    enable_query_rewrite: bool = True
+    enable_hyde: bool = False
+    multi_query_n: int = 3
+    rerank_enabled: bool = True
+    rerank_top_m: int = 20
+    rerank_model_name: str = "BAAI/bge-reranker-base"
+    semantic_cache_enabled: bool = True
+    semantic_cache_threshold: float = 0.95
+    semantic_cache_ttl_s: int = 3600
+    semantic_cache_max_scan: int = 1000
+    redis_url: str = "redis://localhost:6379/0"
+    geo_userdict_path: str = "./data/geo_terms.txt"
+
     # v0.6 P1.6 — L2 跨会话记忆
     memory_consolidate_threshold: int = 50  # 行数 ≥ 此值触发 consolidate
     # Phase 2 — 记忆层向量化

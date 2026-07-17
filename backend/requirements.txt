@@ -48,3 +48,8 @@ prometheus-client==0.20.0
 # v0.8 — LangGraph prebuilt+StateGraph 替换 react_loop 主循环（spec 2026-07-14-langgraph-react-loop-design.md）
 langgraph>=1.0,<2.0
 langchain-core>=0.3,<1.0
+
+# ① 混合检索管道（2026-07-17 hybrid-retrieval-pipeline）
+# rank-bm25: BM25Okapi 关键词召回；redis: 语义缓存 ZSET LRU 后端
+rank-bm25==0.2.2
+redis>=5.0,<6.0
