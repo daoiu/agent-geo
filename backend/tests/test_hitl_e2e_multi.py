@@ -198,11 +198,13 @@ def test_hitl_cancel_marks_message_as_not_pending(client: TestClient) -> None:
 
 def test_hitl_approve_with_reason_does_not_block(client: TestClient) -> None:
     """approve 时附 reason(用户说明同意原因)不应阻塞流程。"""
+    import json
+
     sid, msg_id = _make_pending_session(client)
 
-    with patch("app.api.agent_chat.run_agent_turn_from_checkpoint") as mock_resume:
+    with patch("app.api.agent_chat.resume_from_checkpoint") as mock_resume:
         async def fake_events(*args, **kwargs):
-            yield {"event": "turn_complete"}
+            yield (f"event: turn_complete\ndata: {json.dumps({}, ensure_ascii=False)}\n\n").encode("utf-8")
         mock_resume.side_effect = fake_events
 
         with client.stream(

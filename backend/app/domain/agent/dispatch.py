@@ -16,7 +16,9 @@ from collections.abc import AsyncIterator
 from app.core.config import get_settings
 
 
-async def _run_langgraph_turn(session_id: str, message: str) -> AsyncIterator[bytes]:
+async def _run_langgraph_turn(
+    session_id: str, message: str, device_id: str | None = None
+) -> AsyncIterator[bytes]:
     """LangGraph 路径:react_graph.astream_events → SSEBridge.dispatch。
 
     ②a 唯一 agent 执行路径(react_loop 驱动已删除,plan Task 10)。
@@ -24,11 +26,15 @@ async def _run_langgraph_turn(session_id: str, message: str) -> AsyncIterator[by
     from app.domain.agent.langgraph_nodes.sse_bridge import SSEBridge
 
     sse_bridge = SSEBridge()
-    async for sse in sse_bridge.replay({"session_id": session_id, "message": message}):
+    async for sse in sse_bridge.replay(
+        {"session_id": session_id, "message": message, "device_id": device_id}
+    ):
         yield sse
 
 
-async def run_agent_turn(session_id: str, message: str) -> AsyncIterator[bytes]:
+async def run_agent_turn(
+    session_id: str, message: str, device_id: str | None = None
+) -> AsyncIterator[bytes]:
     """api 层调用入口(spec §10.2 / agent-orchestrator §6.2.6)。
 
     ②a 之后唯一两路径:LangGraph(默认) / Orchestrator(②b 灰度)。
@@ -38,8 +44,9 @@ async def run_agent_turn(session_id: str, message: str) -> AsyncIterator[bytes]:
     if settings.agent_orchestrator_enabled:
         from app.domain.agent.orchestrator.graph import run_orchestrated
 
+        # ②b orchestrator 暂不消费 device_id(L2 偏好走 LangGraph 路径)
         async for sse in run_orchestrated(session_id, message):
             yield sse
         return
-    async for sse in _run_langgraph_turn(session_id, message):
+    async for sse in _run_langgraph_turn(session_id, message, device_id=device_id):
         yield sse

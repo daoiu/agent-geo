@@ -49,7 +49,7 @@ def test_replay_endpoint_exists(client: TestClient) -> None:
     """replay 端点必须存在(返回 200/422/4xx,不返回 404 method)。"""
     sid, msg_id = _create_session_and_message(client)
 
-    with patch("app.domain.agent.langgraph_nodes.resume.resume_from_checkpoint") as mock_r:
+    with patch("app.api.agent_chat.resume_from_checkpoint") as mock_r:
         async def fake_replay(*args, **kwargs):
             yield _sse_bytes("turn_complete")
         mock_r.side_effect = fake_replay
@@ -66,7 +66,7 @@ def test_replay_emits_replay_marker_event(client: TestClient) -> None:
     """replay 流必须先 yield 一个 'replay_start' 标记事件(区分正常流)。"""
     sid, msg_id = _create_session_and_message(client)
 
-    with patch("app.domain.agent.langgraph_nodes.resume.resume_from_checkpoint") as mock_r:
+    with patch("app.api.agent_chat.resume_from_checkpoint") as mock_r:
         async def fake_replay(*args, **kwargs):
             yield _sse_bytes("turn_complete")
         mock_r.side_effect = fake_replay
@@ -109,7 +109,7 @@ def test_replay_emits_complete_event(client: TestClient) -> None:
     """replay 流最终必须 yield turn_complete。"""
     sid, msg_id = _create_session_and_message(client)
 
-    with patch("app.domain.agent.langgraph_nodes.resume.resume_from_checkpoint") as mock_r:
+    with patch("app.api.agent_chat.resume_from_checkpoint") as mock_r:
         async def fake_replay(*args, **kwargs):
             yield _sse_bytes("tool_call_result", tool_call_id="tc1", result={"x": 1})
             yield _sse_bytes("assistant_message", content="重放结果")
@@ -128,7 +128,7 @@ def test_replay_works_for_user_messages(client: TestClient) -> None:
     """replay 可针对 user 消息(不只 pending 消息)。"""
     sid, msg_id = _create_session_and_message(client, role="user")
 
-    with patch("app.domain.agent.langgraph_nodes.resume.resume_from_checkpoint") as mock_r:
+    with patch("app.api.agent_chat.resume_from_checkpoint") as mock_r:
         async def fake_replay(*args, **kwargs):
             yield _sse_bytes("turn_complete")
         mock_r.side_effect = fake_replay

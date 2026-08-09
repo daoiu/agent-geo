@@ -27,10 +27,14 @@ def test_no_react_loop_branch_in_dispatch():
 
 
 def test_dispatch_run_agent_turn_signature_preserved():
-    """run_agent_turn 签名不变(api 调用方零修改)。"""
+    """run_agent_turn 签名:前两位固定(session_id, message),device_id 为可选透传。
+
+    agent_chat API 传 device_id(L2 偏好关联);签名向后兼容(位置参数不变)。
+    """
     sig = inspect.signature(dispatch.run_agent_turn)
     params = list(sig.parameters.keys())
-    assert params == ["session_id", "message"]
+    assert params[:2] == ["session_id", "message"]
+    assert sig.parameters["device_id"].default is None
 
 
 def test_config_no_langgraph_enabled_field():

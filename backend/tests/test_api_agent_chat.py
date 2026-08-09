@@ -15,9 +15,10 @@ def test_post_message_returns_sse_stream(client: TestClient) -> None:
     sid = create.json()["id"]
 
     with patch("app.api.agent_chat.run_agent_turn") as mock_run:
+        # CR-2: run_agent_turn 产 SSE 字节流(非 dict),API 透传 bytes
         async def fake_events(*args, **kwargs):
-            yield {"event": "assistant_message", "content": "好的"}
-            yield {"event": "turn_complete"}
+            yield (f"event: assistant_message\ndata: {json.dumps({'content': '好的'}, ensure_ascii=False)}\n\n").encode("utf-8")
+            yield (f"event: turn_complete\ndata: {json.dumps({}, ensure_ascii=False)}\n\n").encode("utf-8")
         mock_run.side_effect = fake_events
 
         with client.stream(
@@ -52,7 +53,7 @@ def test_post_message_empty_content_fails(client: TestClient) -> None:
 
 
 def test_confirm_action_approves(client: TestClient) -> None:
-    """approved=True 调用 run_agent_turn_from_checkpoint 并 stream SSE。"""
+    """approved=True 调用 resume_from_checkpoint 并 stream SSE。"""
     from app.core.db import get_session_factory
     from app.repositories.agent_repo import AgentRepository
 
@@ -68,11 +69,11 @@ def test_confirm_action_approves(client: TestClient) -> None:
 
     sid, msg_id = asyncio.run(_setup())
 
-    with patch("app.api.agent_chat.run_agent_turn_from_checkpoint") as mock_resume:
+    with patch("app.api.agent_chat.resume_from_checkpoint") as mock_resume:
         async def fake_events(*args, **kwargs):
-            yield {"event": "tool_call_result", "tool_call_id": "tc1", "result": {"x": 1}}
-            yield {"event": "assistant_message", "content": "已生成"}
-            yield {"event": "turn_complete"}
+            yield (f"event: tool_call_result\ndata: {json.dumps({'tool_call_id': 'tc1', 'result': {'x': 1}}, ensure_ascii=False)}\n\n").encode("utf-8")
+            yield (f"event: assistant_message\ndata: {json.dumps({'content': '已生成'}, ensure_ascii=False)}\n\n").encode("utf-8")
+            yield (f"event: turn_complete\ndata: {json.dumps({}, ensure_ascii=False)}\n\n").encode("utf-8")
         mock_resume.side_effect = fake_events
 
         with client.stream(

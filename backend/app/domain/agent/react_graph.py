@@ -204,13 +204,17 @@ class _LLMClientAdapter:
 async def _tool_node(state: AgentState, runtime) -> dict:
     """react_graph 工具节点:接 state 最后 AIMessage 的 tool_calls,调 tool_executor。
 
-    HITL: HumanConfirmationRequired 通过 `interrupt(payload)` 在 tool_node 内拦截;
-    LangGraph 已在 `interrupt_before=["tools"]` 时持久化 state。
+    HITL: 需要确认的工具(requires_confirmation=True)执行时抛
+    HumanConfirmationRequired → 在此转 interrupt(payload) 暂停并持久化
+    checkpoint;v0.6 P1.6+ 全部工具声明 False,直执不暂停。
+    resume 通过 resume_command(user_decision) → Command(resume=...) 续跑。
 
     T2:每个 tool 消息返回前落库,与 react_loop 路径等价。
     """
+    from langgraph.types import interrupt
+
     from app.domain.agent.tool_executor import ToolExecutor
-    import uuid
+    from app.domain.exceptions import HumanConfirmationRequired
 
     msgs = state.get("messages") or []
     last = msgs[-1] if msgs else None
@@ -230,6 +234,17 @@ async def _tool_node(state: AgentState, runtime) -> dict:
                 content=str(result) if not isinstance(result, str) else result,
                 tool_call_id=tc_id,
             )
+        except HumanConfirmationRequired as exc:
+            # HITL:中断并持久化 checkpoint,等待用户确认后 resume
+            interrupt({
+                "kind": exc.kind,
+                "message_id": exc.message_id,
+                "tool_name": exc.tool_name,
+                "arguments": exc.arguments,
+                "tool_call_id": tc_id,
+                "resume_token": None,
+            })
+            continue
         except Exception as exc:  # noqa: BLE001
             tool_msg = ToolMessage(
                 content=f"tool error: {exc!r}",
@@ -283,4 +298,7 @@ def build_react_graph():
     g.add_edge("truncate", "agent")
 
     checkpointer = MemorySaver()
-    return g.compile(checkpointer=checkpointer, interrupt_before=["tools"])
+    # 不设置 interrupt_before: v0.6 P1.6+ 全部工具 requires_confirmation=False,
+    # 直执不暂停;HITL(未来 requires_confirmation=True 的工具)在 tool_node 内
+    # 由 interrupt() 拦截,checkpointer 负责 checkpoint 持久化。
+    return g.compile(checkpointer=checkpointer)
