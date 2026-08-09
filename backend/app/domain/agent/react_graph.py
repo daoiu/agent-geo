@@ -87,6 +87,39 @@ def _has_tool_calls(state: TypedDict) -> bool:
     return bool(getattr(last, "tool_calls", None))
 
 
+def _openai_tool_calls_to_langchain(
+    tool_calls: list | None,
+) -> list[dict]:
+    """tool_calls → langchain ToolCall 格式 {id, name, args}。
+
+    兼容两种输入:
+    - OpenAI 格式(LLMClient 真实返回): [{"id", "function": {"name", "arguments"}}]
+    - langchain 格式(stub/测试): [{"id", "name", "args"}]
+    """
+    import json as _json
+
+    out: list[dict] = []
+    for tc in tool_calls or []:
+        if isinstance(tc, dict) and "function" in tc:
+            fn = tc.get("function", {})
+            args = fn.get("arguments")
+            name = fn.get("name")
+        else:
+            args = tc.get("args")
+            name = tc.get("name")
+        if isinstance(args, str):
+            try:
+                args = _json.loads(args)
+            except ValueError:
+                args = {}
+        out.append({
+            "id": tc.get("id"),
+            "name": name,
+            "args": args,
+        })
+    return out
+
+
 async def _agent_node(state: AgentState, runtime) -> dict:
     """react_graph 主循环 agent 节点:调 LLMClient,返回 AIMessage。
 
@@ -120,7 +153,11 @@ async def _agent_node(state: AgentState, runtime) -> dict:
 
     content = direct_result.get("content")
     tool_calls = direct_result.get("tool_calls")
-    ai = AIMessage(content=content or "", tool_calls=tool_calls or [])
+    # LLMClient 返回 OpenAI 格式 {id, function:{name, arguments}};
+    # AIMessage 需要 langchain ToolCall 格式 {id, name, args} —
+    # 直接透传会抛 "tool_call() got an unexpected keyword argument 'function'"。
+    lc_tool_calls = _openai_tool_calls_to_langchain(tool_calls)
+    ai = AIMessage(content=content or "", tool_calls=lc_tool_calls)
 
     # T4 — metrics 累计:基于 state['metrics'] 累加(首次 _new_metrics),
     # 返回 dict 含更新后的 metrics,LangGraph state reducer 自动合并
@@ -130,25 +167,19 @@ async def _agent_node(state: AgentState, runtime) -> dict:
         metrics["tool_calls"] += len(tool_calls)
 
     # T2 持久化:与 react_loop._drive_react_loop 相同格式
+    # 直接用 lc_tool_calls(langchain 格式,arguments 已是 dict)
     tc_for_db = None
-    if tool_calls:
+    if lc_tool_calls:
         import json as _json
         tc_for_db = [
             {
-                "id": tc["id"] if isinstance(tc, dict) else tc.id,
+                "id": tc["id"],
                 "function": {
-                    "name": tc["name"] if isinstance(tc, dict) else tc["name"],
-                    "arguments": _json.dumps(
-                        tc["args"] if isinstance(tc, dict) else tc.args,
-                        ensure_ascii=False,
-                    )
-                    if isinstance(
-                        (tc["args"] if isinstance(tc, dict) else tc.args), dict
-                    )
-                    else (tc["args"] if isinstance(tc, dict) else tc.args),
+                    "name": tc["name"],
+                    "arguments": _json.dumps(tc["args"], ensure_ascii=False),
                 },
             }
-            for tc in tool_calls
+            for tc in lc_tool_calls
         ]
     async with get_session_factory()() as session:
         await AgentRepository(session).create_message(
