@@ -26,6 +26,10 @@ try:
     from app.models import orm_v04 as _orm_v04  # noqa: F401
 except ImportError:
     pass
+try:
+    from app.models import orm_v05 as _orm_v05  # noqa: F401
+except ImportError:
+    pass
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -84,6 +88,10 @@ async def db_session(temp_db: str, monkeypatch) -> AsyncGenerator[AsyncSession, 
         from app.models import orm_v04 as _orm_v04  # noqa: F401
     except ImportError:
         pass
+    try:
+        from app.models import orm_v05 as _orm_v05  # noqa: F401
+    except ImportError:
+        pass
 
     # Import all v0.x ORM models so Base.metadata sees them BEFORE create_all.
     # Without this, v0.4 tables (agent_sessions/agent_messages) won't be created.
@@ -98,6 +106,10 @@ async def db_session(temp_db: str, monkeypatch) -> AsyncGenerator[AsyncSession, 
         pass
     try:
         from app.models import orm_v04 as _orm_v04  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from app.models import orm_v05 as _orm_v05  # noqa: F401
     except ImportError:
         pass
 

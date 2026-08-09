@@ -32,7 +32,7 @@ layers = [
     "app.repositories",
     "app.models",
 ]
-exclusions = [
+ignore_imports = [
     "app.domain.agent.tool_executor -> app.services.diagnosis_service",
     "app.domain.agent.tool_executor -> app.services.hybrid_search",
     "app.domain.agent.memory -> app.services.embedding",

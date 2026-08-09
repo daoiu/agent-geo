@@ -210,6 +210,7 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
 
     # Monkeypatch 全局 _session_factory(react_loop / langgraph 内部都用 get_session_factory)
     import app.core.db as core_db
+    old_session_factory = core_db._session_factory
     core_db._session_factory = factory
 
     # Mock LLMClient(react_loop 和 react_graph 共用) — 固定返回 text-only,
@@ -292,6 +293,8 @@ async def compare_evals(cases: list[dict], output_dir: Path) -> dict[str, Any]:
         rg_patcher.stop()
         src_patcher.stop()
         te_patcher.stop()
+        # 恢复全局 _session_factory(否则污染同进程后续测试 / CLI 后续命令)
+        core_db._session_factory = old_session_factory
 
     report = {
         "overall_match": sum(overall_matches) / len(overall_matches) if overall_matches else 1.0,

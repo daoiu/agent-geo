@@ -1,6 +1,7 @@
-"""Task 13 evals/runner.py --compare 双跑 react_loop + langgraph。
+"""evals/runner.py compare_evals 测试(CR-3: LangGraph 单路径自检)。
 
-mock 两条路径返回固定 SSE chunks,验证 compare 逻辑产出 diff 报告。
+T10 删 react_loop 后,compare_evals 改为 LangGraph 单路径自检:
+同 case 跑两次,LLM mock 后确定性 → 期望两次输出一致(全 1.0)。
 """
 import json
 
@@ -29,10 +30,10 @@ async def test_rouge_l_disjoint_returns_zero():
 
 @pytest.mark.asyncio
 async def test_compare_evals_with_mocked_runners(tmp_path, monkeypatch):
-    """双跑相同 case,两条路径使用 stub 返回相同 SSE 时,compare_evals 应该全 1.0。"""
+    """stub 两次返回相同 SSE 时,compare_evals 应该全 1.0。"""
     from app.domain.agent import dispatch as dispatch_module
 
-    # 构造相同的 react / lang SSE chunks
+    # 构造相同 SSE chunks(LangGraph 单路径自检:两次跑应一致)
     common_events = [
         {"event": "assistant_message", "content": "stubbed text"},
         {"event": "tool_call_start", "tool_call_id": "tc1", "tool_name": "diagnose_brand", "arguments": {}},
@@ -41,15 +42,10 @@ async def test_compare_evals_with_mocked_runners(tmp_path, monkeypatch):
     ]
     common_chunks = _mk_sse(common_events)
 
-    async def fake_react(session_id, message):
-        for c in common_chunks:
-            yield c
-
     async def fake_lang(session_id, message):
         for c in common_chunks:
             yield c
 
-    monkeypatch.setattr(dispatch_module, "_run_react_loop_turn", fake_react)
     monkeypatch.setattr(dispatch_module, "_run_langgraph_turn", fake_lang)
 
     cases = [{"session_id": "c1", "message": "诊断品牌"}]
@@ -64,31 +60,30 @@ async def test_compare_evals_with_mocked_runners(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_compare_evals_detects_text_divergence(tmp_path, monkeypatch):
-    """两路径 tool_call / handoff 一致但 assistant text 不同时,overall_match < 1.0。"""
+    """两次跑 text 不同时(自检发散),overall_match < 1.0。"""
     from app.domain.agent import dispatch as dispatch_module
 
-    react_events = [
+    run_a_events = [
         {"event": "assistant_message", "content": "alpha beta gamma"},
         {"event": "tool_call_start", "tool_call_id": "tc1", "tool_name": "diagnose_brand", "arguments": {}},
         {"event": "tool_call_result", "tool_call_id": "tc1", "result": {"ok": True}},
         {"event": "turn_complete"},
     ]
-    lang_events = [
+    run_b_events = [
         {"event": "assistant_message", "content": "completely different output text"},
         {"event": "tool_call_start", "tool_call_id": "tc1", "tool_name": "diagnose_brand", "arguments": {}},
         {"event": "tool_call_result", "tool_call_id": "tc1", "result": {"ok": True}},
         {"event": "turn_complete"},
     ]
 
-    async def fake_react(session_id, message):
-        for c in _mk_sse(react_events):
-            yield c
+    calls = {"n": 0}
 
     async def fake_lang(session_id, message):
-        for c in _mk_sse(lang_events):
+        calls["n"] += 1
+        events = run_a_events if calls["n"] == 1 else run_b_events
+        for c in _mk_sse(events):
             yield c
 
-    monkeypatch.setattr(dispatch_module, "_run_react_loop_turn", fake_react)
     monkeypatch.setattr(dispatch_module, "_run_langgraph_turn", fake_lang)
 
     cases = [{"session_id": "c1", "message": "诊断品牌"}]

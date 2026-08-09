@@ -8,7 +8,9 @@ requires-python = ">=3.11"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --import-mode=importlib"
+# 注:两个目录存在同名 test_config.py(agent/orchestrator + services/retrieval),
+# 默认 prepend 模式按 basename 缓存模块导致收集冲突,importlib 模式按完整路径导入。
 
 [tool.coverage.run]
 source = ["app"]
@@ -78,7 +80,7 @@ layers = [
     "app.repositories",
     "app.models",
 ]
-exclusions = [
+ignore_imports = [
     "app.domain.agent.tool_executor -> app.services.diagnosis_service",
     "app.domain.agent.tool_executor -> app.services.hybrid_search",
     "app.domain.agent.memory -> app.services.embedding",
