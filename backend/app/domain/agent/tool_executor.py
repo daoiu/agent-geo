@@ -65,11 +65,15 @@ class ToolExecutor:
 
         # v0.6+ P1#13：声明式权限查询（即使 v0.6 P1.6+ 全部 False，路径仍生效便于未来扩展）
         if requires_confirmation(tool_name):
-            # 未来扩展点：当某工具声明 requires_confirmation=True 时，
-            # 应在此处构造 HumanConfirmationRequired 并 raise。
-            # 当前 v0.6 P1.6+ 全部工具声明 False,此分支不进入。
-            raise NotImplementedError(
-                f"{tool_name} 声明 requires_confirmation=True 但 v0.6 P1.6+ 暂未实现 HITL 路径"
+            # HITL:声明 requires_confirmation=True 的工具 → 抛
+            # HumanConfirmationRequired,react_graph._tool_node 捕获后
+            # interrupt(payload) 暂停,前端 confirm 后 resume 续跑。
+            from app.domain.exceptions import HumanConfirmationRequired
+
+            raise HumanConfirmationRequired(
+                message_id=self.session_id,
+                tool_name=tool_name,
+                arguments=validated.model_dump(),
             )
 
         if tool_name == "diagnose_brand":

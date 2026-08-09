@@ -651,24 +651,39 @@ class TestGenerateArticleConfirmed:
 
 
 class TestGenerateArticle:
-    """v0.6 P1.6+: generate_article 与 create_generation_task 统一走后台路径。
+    """v0.6+ Multi-Agent: generate_article 走 ContentWriterSpecialist。
 
-    调用即创建 article_count=1 的 v0.2 Task + 触发 worker，
-    返回 task_id 给 agent，**不**抛 HumanConfirmationRequired。
+    调用即建 TaskORM(article_count=1) + 生成并落 ArticleORM，
+    返回 {task_id, article_id, title, content}，**不**抛 HumanConfirmationRequired、
+    **不**调 schedule_task(specialist 成功路径同步完成)。
 
-    旧 v0.4 行为（抛 HumanConfirmation）已废弃，代码保留为可恢复参考。
+    specialist 失败/超时时降级旧路径(建后台任务 + schedule_task),
+    该场景由 test_tool_executor_specialist_integration.py 覆盖。
     """
+
+    @staticmethod
+    def _patch_writer(title: str = "标题", content: str = "正文内容") -> MagicMock:
+        """patch ContentWriterAgent,让 write_article 返回固定内容。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_cls = MagicMock()
+        mock_cls.return_value.write_article = AsyncMock(return_value=(title, content))
+        patch_obj = patch(
+            "app.domain.generator.content_writer_agent.ContentWriterAgent", mock_cls
+        )
+        patch_obj.start()
+        return mock_cls
 
     @pytest.mark.asyncio
     async def test_creates_background_task_with_article_count_one(
         self, executor: ToolExecutor, db_session
     ) -> None:
-        """调用即创建 v0.2 TaskORM（article_count=1），不抛 HumanConfirmation。"""
+        """成功路径:建 TaskORM(article_count=1)+ ArticleORM 落库,不抛 HumanConfirmation。"""
         from app.domain.agent.tools import GenerateArticleArgs
         from app.domain.exceptions import HumanConfirmationRequired
         from app.repositories.knowledge_repo import KnowledgeRepository
+        from app.repositories.task_repo import TaskRepository
 
-        # 先建 KB（TaskORM 外键依赖）
         kb_repo = KnowledgeRepository(db_session)
         kb = await kb_repo.create_kb(name="KB")
 
@@ -678,20 +693,24 @@ class TestGenerateArticle:
             keywords=["性能", "拍照"],
         )
 
-        # schedule_task 是 fire-and-forget asyncio.create_task；mock 掉
+        mock_cls = self._patch_writer()
         with patch("app.tasks.task_worker.schedule_task") as mock_sched:
-            result = await ex._execute_generate_article(args)
+            try:
+                result = await ex._execute_generate_article(args)
+            except HumanConfirmationRequired:
+                pytest.fail("v0.6 P1.6+ must NOT raise HumanConfirmationRequired")
 
-        # 返回 task_id + article_count=1 + status pending
+        # specialist 成功路径:不创建后台任务
+        mock_sched.assert_not_called()
+        mock_cls.return_value.write_article.assert_awaited_once()
+
+        # 返回 task_id + article_id + 正文
         assert "task_id" in result
-        assert result["article_count"] == 1
-        assert result["kb_id"] == kb.id
-        assert "审核" in result["next_step"]
-        mock_sched.assert_called_once_with(result["task_id"])
+        assert "article_id" in result
+        assert result["title"] == "标题"
+        assert result["content"] == "正文内容"
 
-        # 验证 DB 里 task 已建好
-        from app.repositories.task_repo import TaskRepository
-
+        # 验证 DB 里 task + article 已真实落库
         task_repo = TaskRepository(db_session)
         task = await task_repo.get_task(result["task_id"])
         assert task is not None
@@ -700,13 +719,20 @@ class TestGenerateArticle:
         assert task.article_count == 1
         assert task.style == "neutral"  # 默认
         assert task.target_length == 1500  # 默认
+        assert task.status == "completed"
+
+        article = await task_repo.get_article(result["article_id"])
+        assert article is not None
+        assert article.content == "正文内容"
+        assert article.review_status == "pending"
 
     @pytest.mark.asyncio
     async def test_passes_through_style_and_length(self, db_session) -> None:
-        """style / target_length 自定义时正确透传。"""
+        """style / target_length 自定义时正确透传到 task。"""
         from app.domain.agent.tools import GenerateArticleArgs
         from app.domain.agent.tool_executor import ToolExecutor
         from app.repositories.knowledge_repo import KnowledgeRepository
+        from app.repositories.task_repo import TaskRepository
 
         kb_repo = KnowledgeRepository(db_session)
         kb = await kb_repo.create_kb(name="KB")
@@ -717,10 +743,9 @@ class TestGenerateArticle:
             keywords=["k"], style="professional", target_length=2000,
         )
 
+        self._patch_writer()
         with patch("app.tasks.task_worker.schedule_task"):
             result = await ex._execute_generate_article(args)
-
-        from app.repositories.task_repo import TaskRepository
 
         task_repo = TaskRepository(db_session)
         task = await task_repo.get_task(result["task_id"])
@@ -729,7 +754,7 @@ class TestGenerateArticle:
 
     @pytest.mark.asyncio
     async def test_does_not_raise_human_confirmation(self, db_session) -> None:
-        """回归：v0.6 P1.6+ 不再抛 HumanConfirmationRequired。"""
+        """回归：v0.6+ 不再抛 HumanConfirmationRequired。"""
         from app.domain.agent.tools import GenerateArticleArgs
         from app.domain.agent.tool_executor import ToolExecutor
         from app.domain.exceptions import HumanConfirmationRequired
@@ -743,6 +768,7 @@ class TestGenerateArticle:
             kb_id=kb.id, brand="小米", topic="产品评测与体验", keywords=["k"],
         )
 
+        self._patch_writer()
         with patch("app.tasks.task_worker.schedule_task"):
             try:
                 result = await ex._execute_generate_article(args)

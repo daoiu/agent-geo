@@ -114,13 +114,15 @@ class MonitorSpecialist:
         return result
 
     async def _execute_with_timeout(self, monitor_task_id: str) -> dict:
-        """实际执行(简化,真实集成时调 LLMClient.query_mentions + 写 snapshot)。
+        """真实执行:复用 MonitorService 核心逻辑(LLM 查询 + snapshot)。
 
-        注: 当前 Task 7 占位实现。Task 8 (scheduler 改造) 将真实接入 MonitorService 内部逻辑。
+        纪律 3: 用注入的 session_factory(不碰主 Agent session)。
+        返回 {monitor_task_id, snapshot_id, mention_rate, ...} 供 handoff 结果。
         """
-        raise NotImplementedError(
-            "MonitorSpecialist._execute_with_timeout 在 Task 8 (scheduler 改造) 中实现真实调用"
-        )
+        from app.domain.monitor.monitor_service import _run_monitor_core
+
+        async with self.session_factory() as session:
+            return await _run_monitor_core(session, self.settings, monitor_task_id)
 
     async def _check_idempotency(self, handoff_id: str) -> HandoffResult | None:
         """纪律 1: 查 handoff_log。"""
