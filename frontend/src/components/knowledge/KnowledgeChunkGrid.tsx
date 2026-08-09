@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { GlobalKnowledgeSearchResult } from '@/types/v0.2';
 import { cn } from '@/lib/utils';
@@ -33,10 +33,11 @@ export function KnowledgeChunkGrid({ result, className }: KnowledgeChunkGridProp
     overscan: 5,
   });
 
-  const rows = useMemo(
-    () => rowVirtualizer.getVirtualItems(),
-    [rowVirtualizer],
-  );
+  // 注意:不能把 getVirtualItems() 结果包进 useMemo([rowVirtualizer]) —
+  // virtualizer 实例稳定,measure 完成后的 re-render 会命中缓存,
+  // 永远返回初始空数组(实测:滚动高度正确但行不渲染)。
+  // react-virtual 通过 useSyncExternalStore 订阅,直接调用即可拿到最新项。
+  const rows = rowVirtualizer.getVirtualItems();
 
   return (
     <div

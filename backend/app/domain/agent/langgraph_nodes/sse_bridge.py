@@ -96,8 +96,9 @@ class SSEBridge:
         graph = build_react_graph()
 
         try:
+            initial_state = await self._build_initial_state(fixture_input)
             async for event in graph.astream_events(
-                self._initial_state(fixture_input),
+                initial_state,
                 config={"configurable": {"thread_id": fixture_input["session_id"]}},
                 version="v2",
             ):
@@ -307,12 +308,73 @@ class SSEBridge:
             return None
         return [langchain_message_to_dict(m) for m in msgs]
 
-    def _initial_state(self, fixture_input: dict) -> dict:
-        from langchain_core.messages import HumanMessage
+    async def _build_initial_state(self, fixture_input: dict) -> dict:
+        """构建图初始 state(react_loop.run_agent_turn 等价)。
 
+        1. 加载会话历史(多轮上下文,DB → langchain messages)
+        2. 持久化当前 user 消息(否则 reload 后消息丢失)
+        3. messages = 历史 + 当前 HumanMessage
+        """
+        import json as _json
+
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+        from app.core.db import get_session_factory
+        from app.domain.agent.turn_helpers import _orm_to_dict
+        from app.repositories.agent_repo import AgentRepository
+
+        session_id = fixture_input["session_id"]
+        user_message = fixture_input["message"]
+
+        async with get_session_factory()() as session:
+            repo = AgentRepository(session)
+            history_rows = await repo.list_messages(session_id)
+            await repo.create_message(
+                session_id=session_id, role="user", content=user_message
+            )
+
+        history_msgs: list = []
+        for row in history_rows:
+            d = _orm_to_dict(row)
+            role = d.get("role")
+            content = d.get("content") or ""
+            if role == "user":
+                history_msgs.append(HumanMessage(content=content))
+            elif role == "assistant":
+                tool_calls = d.get("tool_calls")
+                if tool_calls:
+                    # DB 列存 JSON 字符串(AgentRepository.create_message 序列化)
+                    if isinstance(tool_calls, str):
+                        try:
+                            tool_calls = _json.loads(tool_calls)
+                        except ValueError:
+                            tool_calls = []
+                    lc_calls = []
+                    for tc in tool_calls:
+                        fn = tc.get("function", {})
+                        args = fn.get("arguments")
+                        if isinstance(args, str):
+                            try:
+                                args = _json.loads(args)
+                            except ValueError:
+                                args = {}
+                        lc_calls.append({
+                            "id": tc.get("id"),
+                            "name": fn.get("name"),
+                            "args": args,
+                        })
+                    history_msgs.append(AIMessage(content=content, tool_calls=lc_calls))
+                else:
+                    history_msgs.append(AIMessage(content=content))
+            elif role == "tool":
+                history_msgs.append(
+                    ToolMessage(content=content, tool_call_id=d.get("tool_call_id") or "")
+                )
+
+        history_msgs.append(HumanMessage(content=user_message))
         return {
-            "messages": [HumanMessage(content=fixture_input["message"])],
-            "session_id": fixture_input["session_id"],
+            "messages": history_msgs,
+            "session_id": session_id,
             "memory_chunk": None,
             "memory_index_segment": "",
             "truncation_result": None,
