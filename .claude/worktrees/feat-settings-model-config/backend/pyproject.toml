@@ -1,0 +1,109 @@
+[project]
+name = "geo-agent-backend"
+version = "0.1.0"
+description = "GEO optimization agent backend"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*", "data/*"]
+
+# ---------------------------------------------------------------------------
+# Ruff — 基础 lint(阶段 1 P0#2 新增)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["data/*", ".venv/*"]
+
+[tool.ruff.lint]
+# E/F/W: pycodestyle/pyflakes/pycodestyle warnings
+# I: isort(import 排序)
+# B: bugbear(常见 bug)
+# BLE: blind-except(宽泛捕获检测,对应 P0#6 目标)
+select = ["E", "F", "W", "I", "B", "BLE"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B008"]  # tests 里 fixture 参数化常用 B008
+
+# ---------------------------------------------------------------------------
+# MyPy — 类型检查(阶段 1 P0#2 新增,初次允许警告)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = false  # 阶段 1 暂关闭,逐步开启
+disallow_untyped_defs = false
+ignore_errors = false
+
+# ---------------------------------------------------------------------------
+# Import Linter — 架构分层契约 (P1#21)
+# ---------------------------------------------------------------------------
+# Source config lived in .import-linter.toml. import-linter 2.x supports
+# `[tool.importlinter]` in pyproject.toml directly; we mirror here so
+# `lint-imports` auto-discovers it.
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Repositories depends only on Models"
+type = "layers"
+layers = [
+    "app.repositories",
+    "app.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "Models are standalone"
+type = "independence"
+modules = [
+    "app.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain depends on Repos/Models (NOT Services)"
+type = "layers"
+layers = [
+    "app.domain",
+    "app.repositories",
+    "app.models",
+]
+exclusions = [
+    "app.domain.agent.tool_executor -> app.services.diagnosis_service",
+    "app.domain.agent.tool_executor -> app.services.hybrid_search",
+    "app.domain.agent.memory -> app.services.embedding",
+    "app.repositories.handoff_log_repo -> app.domain.agent.handoff",
+]
+
+
+# v0.8 (2026-07-14) — Domain modules do not import LangGraph internals
+# spec §0.2: reverse-direction guard; specialists/handoff/tools/tool_executor
+# must not pull LangGraph types from main loop dir.
+[[tool.importlinter.contracts]]
+name = "Domain modules do not import LangGraph internals"
+type = "forbidden"
+source_modules = [
+    "app.domain.agent.tools",
+    "app.domain.agent.tool_executor",
+    "app.domain.agent.handoff",
+    "app.domain.agent.content_writer_specialist",
+    "app.domain.monitor.monitor_specialist",
+]
+
+
+
+
+forbidden_modules = [
+    "app.domain.agent.langgraph_nodes",
+    "app.domain.agent.react_graph",
+]

@@ -1,0 +1,726 @@
+"""v0.4 ReAct 循环：agent 推理 + 工具执行。
+
+设计要点：
+- 自写循环（不引 LangGraph / LangChain）
+- max_react_iterations（来自 Settings）防无限循环，阶段 1 硬编码 7，阶段 2 P1#7（Task 8）提到 Settings
+- 流式 yield SSE 事件（assistant_message / tool_call_start / tool_call_result /
+  human_confirmation_required / turn_complete / max_iterations_reached）
+- 写类工具抛 HumanConfirmationRequired 暂停循环
+- 断点续跑：run_agent_turn_from_checkpoint 从上次 pending_confirmation 继续执行
+
+v0.6 P1.6 — L2 跨会话偏好：
+- `build_messages` 接受 `memory_index_segment`,拼到 system 末尾
+- `_apply_memory_prepend` 在每个 LLM call 前把相关记忆 prepended 到 user 消息
+- `_do_extract_after_turn` 在 `turn_complete` 前 fire-and-forget 触发蒸馏
+- `_PENDING_EXTRACTS` 持有后台 task 防 GC
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from contextlib import asynccontextmanager
+from decimal import Decimal
+from typing import AsyncIterator
+
+import structlog
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.core.config import get_settings
+from app.core.db import get_session_factory
+from app.core.providers import compute_cost, resolve_providers
+from app.domain.agent.memory import MemoryService, scope_key
+from app.domain.agent.prompts import AGENT_SYSTEM_PROMPT
+from app.domain.agent.tool_executor import ToolExecutor
+from app.domain.agent.tools import TOOLS
+from app.domain.exceptions import _LLM_TRANSIENT_EXCEPTIONS, _TOOL_TRANSIENT_EXCEPTIONS
+from app.domain.llm_client import LLMClient
+
+# v0.6+ P1#11（Task 12）：tiktoken 编码器懒加载缓存。None 表示未初始化。
+_TIKTOKEN_ENCODER: object | None = None
+_TIKTOKEN_ENCODING_NAME: str | None = None
+from app.models.orm_v04 import AgentMessageORM
+from app.repositories.agent_repo import AgentRepository
+
+# v0.6 P1.4: 5 → 7，留余量给 list → search → create_task。
+# v0.6+ P1#7: 此常量已上移到 core/config.py:Settings.max_react_iterations（Task 8），
+# 便于 env 覆盖，调用方 get_settings().max_react_iterations。
+logger = structlog.get_logger()
+
+# Fire-and-forget 持有的后台任务集合,避免被 GC
+_PENDING_EXTRACTS: set[asyncio.Task] = set()
+
+
+@asynccontextmanager
+async def _open_agent_repo(
+    factory: async_sessionmaker | None = None,
+):
+    """打开一个 session 并 yield AgentRepository。
+
+    v0.6+ P1#8（Task 9）：替代 ``async with factory() as session: repo = AgentRepository(session)``
+    的 5 处重复样板代码。每个 ``async with _open_agent_repo() as repo`` 仍是一次独立事务，
+    但消除了 ``repo = AgentRepository(session)`` 这一层嵌套。
+
+    factory 为 None 时回退到 ``get_session_factory()``（默认行为）。
+    测试可注入自定义 factory（DI 入口）。
+    """
+    f = factory if factory is not None else get_session_factory()
+    async with f() as session:
+        yield AgentRepository(session)
+
+
+def _get_tiktoken_encoder(encoding_name: str | None = None):
+    """懒加载 tiktoken 编码器（v0.6+ P1#11 / Task 12）。
+
+    缓存于模块级单例。encoding_name 为 None 时使用 Settings.tiktoken_encoding。
+    失败时返回 None（让调用方回退到字符级截断，不阻塞主流程）。
+    """
+    global _TIKTOKEN_ENCODER, _TIKTOKEN_ENCODING_NAME
+    name = encoding_name or get_settings().tiktoken_encoding
+    if _TIKTOKEN_ENCODER is not None and _TIKTOKEN_ENCODING_NAME == name:
+        return _TIKTOKEN_ENCODER
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding(name)
+        _TIKTOKEN_ENCODER = enc
+        _TIKTOKEN_ENCODING_NAME = name
+        return enc
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tiktoken_load_failed", encoding_name=name, error=str(exc))
+        return None
+
+
+def _truncate_by_tokens(content: str, max_tokens: int, encoder) -> str:
+    """按 token 数截断字符串（保留前 max_tokens 个 token）。
+
+    encoder 为 None 时直接返回原 content（回退到字符级）。
+    """
+    if encoder is None:
+        return content
+    tokens = encoder.encode(content)
+    if len(tokens) <= max_tokens:
+        return content
+    # decode 前 N 个 token（可能有尾部空格，需 strip）
+    truncated = encoder.decode(tokens[:max_tokens]).rstrip()
+    return truncated + "…(truncated)"
+
+
+# ===========================================================================
+# 消息构建
+# ===========================================================================
+
+
+def build_messages(
+    history: list[dict],
+    memory_index_segment: str = "",
+    *,
+    window_messages: int | None = None,
+    tool_result_max_chars: int | None = None,
+    tool_result_keep_recent: int = 0,
+    token_budget_per_tool_result: int | None = None,
+) -> list[dict]:
+    """把 DB 风格历史转换为 OpenAI chat completion 协议格式。
+
+    输入 history 元素格式：
+      {"role": "user"|"assistant"|"tool"|"system", "content": str|None, ...}
+
+    特殊处理：
+    - assistant 消息的 tool_calls.arguments 必须是 JSON **字符串**（OpenAI 协议要求，
+      DB 也以字符串存储）；这里原样透传，dict 则序列化回字符串，绝不发对象。
+    - tool 消息必须带 tool_call_id（OpenAI 协议要求）
+    - **配对保证**：只保留有对应 tool 结果的 tool_call；丢弃 dangling 的
+      （HumanConfirmation / 被中断的流会留下无结果的 tool_call），并跳过孤儿 tool
+      结果。否则严格 provider 报 'tool call result does not follow tool call' 400。
+    - 系统 prompt 总是作为第一条注入
+    - v0.6 P1.6:`memory_index_segment`（L2 索引段）拼到系统 prompt 末尾,
+      仅常量部分参与 prompt cache,索引内容改变不需要重建整段 system
+    """
+    # Phase 3 ①滑动窗口:先裁,配对计算基于窗口后的历史(切断的一侧由 kept_ids 丢弃)
+    if window_messages is not None and len(history) > window_messages:
+        history = history[-window_messages:]
+
+    # Phase 3 ③截断预算:最近 keep_recent 个 tool 结果保全量,其余超长截断
+    tool_positions = [i for i, m in enumerate(history) if m.get("role") == "tool"]
+    if tool_result_keep_recent > 0:
+        keep_full = set(tool_positions[-tool_result_keep_recent:])
+    else:
+        keep_full = set()
+
+    # 先扫出「已有结果」的 tool_call_id（存在对应 tool 消息）与「被 assistant 声明」的
+    # tool_call_id；只有两者交集(kept_ids)才是可安全重放的配对。
+    resolved_ids: set[str] = {
+        msg["tool_call_id"]
+        for msg in history
+        if msg.get("role") == "tool" and msg.get("tool_call_id")
+    }
+    declared_ids: set[str] = set()
+    for msg in history:
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            tc_raw = msg["tool_calls"]
+            if isinstance(tc_raw, str):
+                tc_raw = json.loads(tc_raw)
+            for tc in tc_raw:
+                if tc.get("id"):
+                    declared_ids.add(tc["id"])
+    kept_ids = resolved_ids & declared_ids
+
+    out: list[dict] = [{
+        "role": "system",
+        "content": AGENT_SYSTEM_PROMPT + memory_index_segment,
+    }]
+
+    for idx, msg in enumerate(history):
+        role = msg["role"]
+        if role == "user":
+            out.append({"role": "user", "content": msg["content"]})
+        elif role == "assistant":
+            asst: dict = {"role": "assistant", "content": msg.get("content")}
+            if msg.get("tool_calls"):
+                tc_raw = msg["tool_calls"]
+                if isinstance(tc_raw, str):
+                    tc_raw = json.loads(tc_raw)
+                # 兼容两种格式：
+                # 1. OpenAI 风格：{id, function: {name, arguments}}
+                # 2. 简化风格：{tool, arguments}
+                normalized = []
+                for tc in tc_raw:
+                    tc_id = tc.get("id", "")
+                    # 只保留有对应 tool 结果的 call，避免 dangling tool_call
+                    if tc_id not in kept_ids:
+                        continue
+                    if "function" in tc:
+                        args = tc["function"]["arguments"]
+                        normalized.append({
+                            "id": tc_id,
+                            "type": "function",
+                            "function": {
+                                "name": tc["function"]["name"],
+                                "arguments": args
+                                if isinstance(args, str)
+                                else json.dumps(args, ensure_ascii=False),
+                            },
+                        })
+                    elif "tool" in tc:
+                        # 简化风格 → 转换为 OpenAI 风格
+                        sargs = tc["arguments"]
+                        normalized.append({
+                            "id": tc_id,
+                            "type": "function",
+                            "function": {
+                                "name": tc["tool"],
+                                "arguments": sargs
+                                if isinstance(sargs, str)
+                                else json.dumps(sargs, ensure_ascii=False),
+                            },
+                        })
+                if normalized:
+                    asst["tool_calls"] = normalized
+            # 跳过既无内容又无有效 tool_calls 的空 assistant（dangling 丢弃后可能出现）
+            if asst.get("content") or asst.get("tool_calls"):
+                out.append(asst)
+        elif role == "tool":
+            # 只发能对上 assistant tool_call 的结果；孤儿 tool 跳过
+            if msg.get("tool_call_id") in kept_ids:
+                content = msg["content"]
+                # Phase 3 ③截断:非最近 keep_recent 个且超长 → 截断标记
+                # v0.6+ P1#11（Task 12）：优先 token 级截断,token_budget 为 None 时回退字符级
+                if isinstance(content, str) and idx not in keep_full:
+                    if token_budget_per_tool_result is not None:
+                        encoder = _get_tiktoken_encoder()
+                        content = _truncate_by_tokens(
+                            content, token_budget_per_tool_result, encoder
+                        )
+                    elif (tool_result_max_chars is not None
+                            and len(content) > tool_result_max_chars):
+                        content = content[:tool_result_max_chars] + "…(truncated)"
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": msg["tool_call_id"],
+                    "content": content,
+                })
+        # 其他 role 忽略（防御性）
+
+    return out
+
+
+def _orm_to_dict(m: AgentMessageORM) -> dict:
+    """ORM 消息转 dict 格式。"""
+    return {
+        "id": m.id,
+        "role": m.role,
+        "content": m.content,
+        "tool_calls": m.tool_calls,
+        "tool_call_id": m.tool_call_id,
+    }
+
+
+# ===========================================================================
+# v0.6 P1.6 — L2 记忆 helpers
+# ===========================================================================
+
+
+def _apply_memory_prepend(messages: list[dict], prepend: str) -> list[dict]:
+    """把 relevant memories 块拼到第一条 user 消息前。
+
+    设计:只对第一个 user role 消息拼接(本次 turn 的用户输入),
+    不动后续 assistant / tool / system 消息,也不会重复注入。
+    返回新列表(不修改入参),便于多次调用(build_messages 每次返回新列表即可)。
+    """
+    if not prepend:
+        return messages
+    out: list[dict] = []
+    injected = False
+    for m in messages:
+        if not injected and m.get("role") == "user" and m.get("content"):
+            out.append({**m, "content": prepend + "\n\n" + m["content"]})
+            injected = True
+        else:
+            out.append(m)
+    return out
+
+
+async def _do_extract_after_turn(
+    device_id: str | None,
+    session_id: str,
+    history: list[dict],
+) -> None:
+    """turn_complete 后 fire-and-forget 调。失败静默,不影响 turn。"""
+    try:
+        factory = get_session_factory()
+        async with factory() as session:
+            svc = MemoryService(session)
+            await svc.extract(
+                scope=scope_key(device_id, session_id),
+                messages=history,
+                session_id=session_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "extract_after_turn_failed",
+            session_id=session_id,
+            error=str(e),
+        )
+
+
+# ===========================================================================
+# Phase 1 — 埋点 helpers
+# ===========================================================================
+
+
+def _new_metrics() -> dict:
+    return {
+        "iterations": 0, "llm_calls": 0, "tool_calls": 0,
+        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+        "usage_seen": False,
+    }
+
+
+def _accumulate(agg: dict, usage: dict | None) -> None:
+    agg["iterations"] += 1
+    agg["llm_calls"] += 1
+    if not usage:
+        return
+    agg["usage_seen"] = True
+    for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        v = usage.get(k)
+        if v is not None:
+            agg[k] += v
+
+
+def _emit_metrics(
+    agg: dict, session_id: str, device_id: str | None, outcome: str,
+    turn_duration_ms: float | None = None,
+    cost_usd: "Decimal | None" = None,
+) -> None:
+    """记录 turn 级别指标(v0.6+ P1#22 Task 24 增加 turn_duration_ms + cost_usd)。"""
+    logger.info(
+        "agent_turn_metrics",
+        session_id=session_id, device_id=device_id, outcome=outcome,
+        iterations=agg["iterations"], llm_calls=agg["llm_calls"],
+        tool_calls=agg["tool_calls"],
+        prompt_tokens=agg["prompt_tokens"] if agg["usage_seen"] else None,
+        completion_tokens=agg["completion_tokens"] if agg["usage_seen"] else None,
+        total_tokens=agg["total_tokens"] if agg["usage_seen"] else None,
+        turn_duration_ms=turn_duration_ms,
+        cost_usd=str(cost_usd) if cost_usd is not None else None,
+    )
+
+
+# ===========================================================================
+# ReAct 主循环
+# ===========================================================================
+
+
+async def _drive_react_loop(
+    session_id: str,
+    history: list[dict],
+    device_id: str | None = None,
+    *,
+    factory: async_sessionmaker | None = None,
+) -> AsyncIterator[dict]:
+    """共享 ReAct 循环体。两入口做完各自起点差异后委托到此。
+
+    产出的 SSE 事件流与收敛前逐事件等价。
+
+    v0.6+ P1#8（Task 9）：接受可选 factory 参数（DI 入口）。
+    不传则使用 ``get_session_factory()`` 默认 factory。测试可注入自定义 factory。
+    """
+    settings = get_settings()
+    llm = LLMClient(settings)
+    f = factory if factory is not None else get_session_factory()
+    scope = scope_key(device_id, session_id)
+
+    # v0.6+ P1#22（Task 24）：turn 级别计时 + cost 计算
+    turn_start = time.perf_counter()
+    providers = resolve_providers(settings)
+    primary_provider = providers[0] if providers else None
+
+    def _compute_turn_cost() -> Decimal | None:
+        """根据 primary provider + 累计 usage 计算 USD cost。"""
+        if not primary_provider or not agg["usage_seen"]:
+            return None
+        return compute_cost(
+            primary_provider,
+            prompt_tokens=agg["prompt_tokens"],
+            completion_tokens=agg["completion_tokens"],
+        )
+
+    # 记忆预热（仍需独立 session，因为用的是 MemoryService 而非 AgentRepository）
+    async with f() as session:
+        memory_service = MemoryService(session)
+        memory_index_segment = await memory_service.build_memory_segment(scope)
+        memory_block = await memory_service.load_relevant_memories(scope, history)
+
+    agg = _new_metrics()
+    for _iteration in range(settings.max_react_iterations):
+        messages = build_messages(
+            history,
+            memory_index_segment=memory_index_segment,
+            window_messages=settings.context_window_messages,
+            tool_result_max_chars=settings.tool_result_max_chars,
+            tool_result_keep_recent=settings.tool_result_keep_recent,
+            token_budget_per_tool_result=settings.token_budget_per_tool_result,
+        )
+        messages = _apply_memory_prepend(messages, memory_block)
+
+        try:
+            response = await llm.chat_with_tools(messages=messages, tools=TOOLS)
+        except _LLM_TRANSIENT_EXCEPTIONS as exc:
+            # v0.6+ P1#9（Task 10）：LLM 调用失败显式降级为 SSE 事件，
+            # 不再让异常穿透导致 SSE 流被切断。前端可看到 llm_error 事件并提示用户重试。
+            # 编程错误（AttributeError 等）不捕获，让它向上抛（不被吞）。
+            err_type = type(exc).__name__
+            logger.warning(
+                "llm_call_failed_transient",
+                session_id=session_id,
+                error_type=err_type,
+                message=str(exc),
+            )
+            yield {
+                "event": "llm_error",
+                "error_type": err_type,
+                "message": str(exc),
+                "retryable": True,
+            }
+            return
+        _accumulate(agg, response.get("usage"))
+        content = response.get("content")
+        tool_calls = response.get("tool_calls") or []
+
+        tc_for_db = None
+        if tool_calls:
+            tc_for_db = [
+                {
+                    "id": tc["id"],
+                    "function": {
+                        "name": tc["function"]["name"],
+                        "arguments": json.dumps(tc["function"]["arguments"])
+                        if isinstance(tc["function"]["arguments"], dict)
+                        else tc["function"]["arguments"],
+                    },
+                }
+                for tc in tool_calls
+            ]
+        async with _open_agent_repo(factory=f) as repo:
+            await repo.create_message(
+                session_id=session_id, role="assistant",
+                content=content, tool_calls=tc_for_db,
+            )
+
+        yield {"event": "assistant_message", "content": content or ""}
+
+        if tool_calls:
+            executor = ToolExecutor(session_id)
+            for tool_call in tool_calls:
+                tool_id = tool_call["id"]
+                tool_name = tool_call["function"]["name"]
+                tool_args = tool_call["function"]["arguments"]
+                if isinstance(tool_args, str):
+                    tool_args = json.loads(tool_args)
+
+                yield {
+                    "event": "tool_call_start",
+                    "tool_call_id": tool_id,
+                    "tool_name": tool_name,
+                    "arguments": tool_args,
+                }
+                agg["tool_calls"] += 1
+
+                try:
+                    result = await executor.execute(tool_name, tool_args)
+                except _TOOL_TRANSIENT_EXCEPTIONS as exc:
+                    # v0.6+ P1#15（Task 16）：transient 异常降级为 tool_call_result error,
+                    # LLM 看到错误可决定下一步(继续 / 重试 / 改方案)。
+                    # 编程错误（ValueError / AttributeError 等）不被捕获,向上抛。
+                    err_payload = {"error": f"{type(exc).__name__}: {exc}"}
+                    async with _open_agent_repo(factory=f) as repo:
+                        await repo.create_message(
+                            session_id=session_id, role="tool",
+                            content=json.dumps(err_payload, ensure_ascii=False),
+                            tool_call_id=tool_id,
+                        )
+                    yield {
+                        "event": "tool_call_result",
+                        "tool_call_id": tool_id,
+                        "result": err_payload,
+                    }
+                    continue
+                except Exception as exc:
+                    # 任意 HITL 类型(decision/input/progress_confirm)都优先识别
+                    # yield 对应 kind 的暂停事件后 return 退出。
+                    from app.domain.exceptions import HumanConfirmationBase
+
+                    if isinstance(exc, HumanConfirmationBase):
+                        _emit_metrics(
+                            agg, session_id, device_id, f"hitl_{exc.kind}",
+                            turn_duration_ms=(time.perf_counter() - turn_start) * 1000,
+                            cost_usd=_compute_turn_cost(),
+                        )
+                        # 根据 kind 生成不同 SSE event 名称
+                        event_name_map = {
+                            "decision": "human_confirmation_required",
+                            "input": "input_required",
+                            "progress_confirm": "progress_confirm",
+                        }
+                        event_name = event_name_map.get(exc.kind, "human_confirmation_required")
+                        payload = {
+                            "event": event_name,
+                            "kind": exc.kind,
+                            "message_id": exc.message_id,
+                            "tool_name": exc.tool_name,
+                            "arguments": exc.arguments,
+                        }
+                        # 按 kind 附加额外字段
+                        if exc.kind == "input":
+                            payload["input_schema"] = exc.input_schema
+                            payload["prompt"] = exc.prompt
+                        elif exc.kind == "progress_confirm":
+                            payload["progress_pct"] = exc.progress_pct
+                            payload["eta_seconds"] = exc.eta_seconds
+                        yield payload
+                        return
+                    # 其他编程错误:向上抛,不被吞
+                    raise
+
+                async with _open_agent_repo(factory=f) as repo:
+                    await repo.create_message(
+                        session_id=session_id, role="tool",
+                        content=json.dumps(result, ensure_ascii=False),
+                        tool_call_id=tool_id,
+                    )
+                yield {
+                    "event": "tool_call_result",
+                    "tool_call_id": tool_id,
+                    "result": result,
+                }
+
+            async with _open_agent_repo(factory=f) as repo:
+                history_rows = await repo.list_messages(session_id)
+            history = [_orm_to_dict(m) for m in history_rows]
+        else:
+            task = asyncio.create_task(
+                _do_extract_after_turn(device_id, session_id, history)
+            )
+            _PENDING_EXTRACTS.add(task)
+            task.add_done_callback(_PENDING_EXTRACTS.discard)
+            _emit_metrics(
+                agg, session_id, device_id, "turn_complete",
+                turn_duration_ms=(time.perf_counter() - turn_start) * 1000,
+                cost_usd=_compute_turn_cost(),
+            )
+            yield {"event": "turn_complete"}
+            return
+
+    _emit_metrics(
+        agg, session_id, device_id, "max_iterations_reached",
+        turn_duration_ms=(time.perf_counter() - turn_start) * 1000,
+        cost_usd=_compute_turn_cost(),
+    )
+    yield {
+        "event": "max_iterations_reached",
+        "message": f"agent 达到最大推理步数 ({settings.max_react_iterations})",
+    }
+
+
+async def run_agent_turn(
+    session_id: str,
+    user_message: str,
+    device_id: str | None = None,
+) -> AsyncIterator[dict]:
+    """执行一轮 agent 推理 + 行动循环。流式 yield SSE 事件。
+
+    起点差异:加载历史 → 保存 user 消息 → 委托共享循环。
+    """
+    factory = get_session_factory()
+
+    # 1. 加载历史 + 2. 保存 user 消息
+    async with factory() as session:
+        repo = AgentRepository(session)
+        history_rows = await repo.list_messages(session_id)
+        await repo.create_message(
+            session_id=session_id, role="user", content=user_message
+        )
+    history = [_orm_to_dict(m) for m in history_rows] + [
+        {"role": "user", "content": user_message}
+    ]
+
+    async for evt in _drive_react_loop(session_id, history, device_id):
+        yield evt
+
+
+# ===========================================================================
+# 断点续跑（用户决策要求：不是 MVP）
+# ===========================================================================
+
+
+async def run_agent_turn_from_checkpoint(
+    session_id: str,
+    checkpoint_message_id: str,
+    device_id: str | None = None,
+) -> AsyncIterator[dict]:
+    """从 pending_confirmation 消息处继续执行。
+
+    适用场景：
+    1. 用户首次输入"生成文章"
+    2. agent 调 generate_article → ToolExecutor 抛 HumanConfirmationRequired（落 pending msg）
+    3. ReAct 循环 yield human_confirmation_required 后暂停
+    4. 前端弹窗，用户点"确认"
+    5. POST /sessions/{sid}/messages/{msg_id}/confirm {approved: true}
+    6. 调本函数：
+       a. 找到 checkpoint message，解析其 tool_calls[0].arguments
+       b. 调 _execute_generate_article_confirmed(args, checkpoint_message_id) → 真正生成预览
+       c. 保存 tool 消息（作为该 pending msg 的结果）
+       d. 继续 ReAct 循环（重新加载历史 + 调 LLM）
+
+    异常处理：
+    - 如果 checkpoint_message_id 不存在或已 resolved：yield error 并退出
+    """
+    from app.domain.agent.tools import GenerateArticleArgs
+
+    factory = get_session_factory()
+
+    # 1. 找到 checkpoint message
+    async with factory() as session:
+        repo = AgentRepository(session)
+        ckpt_msg = await repo.get_message(checkpoint_message_id)
+
+    if ckpt_msg is None or ckpt_msg.session_id != session_id:
+        yield {
+            "event": "error",
+            "message": f"checkpoint message {checkpoint_message_id} not found",
+        }
+        return
+    if not ckpt_msg.pending_confirmation:
+        yield {
+            "event": "error",
+            "message": f"checkpoint message {checkpoint_message_id} already resolved",
+        }
+        return
+
+    # 2. 解析 pending message 的 tool_calls，提取 generate_article args
+    if not ckpt_msg.tool_calls:
+        yield {"event": "error", "message": "no tool_calls in checkpoint message"}
+        return
+    tc_list = json.loads(ckpt_msg.tool_calls) if isinstance(ckpt_msg.tool_calls, str) else ckpt_msg.tool_calls
+    if not tc_list:
+        yield {"event": "error", "message": "empty tool_calls in checkpoint message"}
+        return
+
+    # 兼容两种格式：OpenAI 风格 (function.name + function.arguments) 或简化风格 (tool + arguments)
+    first_tc = tc_list[0]
+    if "function" in first_tc:
+        # OpenAI 风格
+        if first_tc["function"]["name"] != "generate_article":
+            yield {
+                "event": "error",
+                "message": f"checkpoint tool is {first_tc['function']['name']}, expected generate_article",
+            }
+            return
+        args_raw = first_tc["function"]["arguments"]
+        if isinstance(args_raw, str):
+            args_dict = json.loads(args_raw)
+        else:
+            args_dict = args_raw
+    elif "tool" in first_tc:
+        # 简化风格（向后兼容旧数据）
+        if first_tc["tool"] != "generate_article":
+            yield {
+                "event": "error",
+                "message": f"checkpoint tool is {first_tc['tool']}, expected generate_article",
+            }
+            return
+        args_dict = first_tc["arguments"]
+    else:
+        yield {"event": "error", "message": "unrecognized tool_calls format"}
+        return
+
+    args = GenerateArticleArgs.model_validate(args_dict)
+    # tool_call_id 必须与 assistant 消息的 tool_calls[0].id 一致（OpenAI 协议）。
+    # _execute_generate_article 写入时 id=message_id，所以这里用 checkpoint_message_id。
+    pending_tool_id = checkpoint_message_id
+
+    # 3. 调 _execute_generate_article_confirmed
+    # 注意：confirm_message 已在 API 层 (agent_chat.confirm_action) 调用过，
+    # 这里不再重复，否则 idempotent 重复执行（不会出错，但浪费）。
+    executor = ToolExecutor(session_id)
+    try:
+        confirmed_result = await executor._execute_generate_article_confirmed(
+            args, checkpoint_message_id
+        )
+    except NotImplementedError:
+        # 占位 stub：完整 ContentWriter 实现在后续集成阶段补
+        yield {
+            "event": "error",
+            "message": "_execute_generate_article_confirmed not yet implemented",
+        }
+        return
+    except Exception as exc:  # noqa: BLE001
+        yield {
+            "event": "error",
+            "message": f"confirmed generation failed: {type(exc).__name__}: {exc}",
+        }
+        return
+
+    # 5. 保存 tool 消息 + yield result
+    async with factory() as session:
+        repo = AgentRepository(session)
+        await repo.create_message(
+            session_id=session_id, role="tool",
+            content=json.dumps(confirmed_result, ensure_ascii=False),
+            tool_call_id=pending_tool_id,
+        )
+
+    yield {
+        "event": "tool_call_result",
+        "tool_call_id": pending_tool_id,
+        "result": confirmed_result,
+    }
+
+    # 6. 继续 ReAct 循环（委托共享驱动，基于新 tool 结果继续决策）
+    async with factory() as session:
+        repo = AgentRepository(session)
+        history_rows = await repo.list_messages(session_id)
+    history = [_orm_to_dict(m) for m in history_rows]
+
+    async for evt in _drive_react_loop(session_id, history, device_id):
+        yield evt

@@ -1,0 +1,50 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+httpx==0.28.1
+selectolax==0.3.21
+openai==1.60.0
+sqlalchemy[asyncio]==2.0.36
+aiosqlite==0.20.0
+weasyprint==63.1
+jinja2==3.1.5
+python-multipart==0.0.20
+structlog==24.4.0
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+respx>=0.22.0
+jieba==0.42.1
+pypdf==5.1.0
+python-docx==1.1.2
+
+# v0.3
+apscheduler==3.10.4
+cryptography==43.0.1
+aiosmtplib==3.0.1
+markdown==3.7
+
+# v0.5 — Vector retrieval
+chromadb==0.5.20
+sentence-transformers==3.2.1
+
+# v0.7 — Harness (P0#2 阶段 1)
+ruff==0.6.0
+mypy==1.11.0
+
+# v0.6+ P1#11 — Token 级截断（Task 12）
+tiktoken==0.8.0
+
+# v0.6+ P1#17 — Sentry 异常聚合（Task 18；DSN 缺失时 init_sentry 静默 no-op）
+sentry-sdk[fastapi]==2.19.2
+
+# v0.6+ P1#18 — Langfuse LLM 调用可视化（Task 19；keys 缺失时 init_langfuse 静默 no-op）
+langfuse==2.59.0
+
+# v0.7+ P1#30 — Prometheus 指标导出（Task 31；geo_* 命名空间）
+prometheus-client==0.20.0
+
+# v0.8 — LangGraph prebuilt+StateGraph 替换 react_loop 主循环（spec 2026-07-14-langgraph-react-loop-design.md）
+langgraph>=1.0,<2.0
+langchain-core>=0.3,<1.0

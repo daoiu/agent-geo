@@ -1,0 +1,58 @@
+# import-linter 架构分层契约
+# 依据: AGENTS.md §4 + docs/review/10-architecture-layering.md
+#
+# 5 阶段分层(单向):
+#   api → services → domain → repos → models
+#
+# 运行: cd backend && lint-imports
+
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Repositories depends only on Models"
+type = "layers"
+layers = [
+    "app.repositories",
+    "app.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "Models are standalone"
+type = "independence"
+modules = [
+    "app.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain depends on Repos/Models (NOT Services)"
+type = "layers"
+layers = [
+    "app.domain",
+    "app.repositories",
+    "app.models",
+]
+exclusions = [
+    "app.domain.agent.tool_executor -> app.services.diagnosis_service",
+    "app.domain.agent.tool_executor -> app.services.hybrid_search",
+    "app.domain.agent.memory -> app.services.embedding",
+    "app.repositories.handoff_log_repo -> app.domain.agent.handoff",
+]
+
+# v0.8 (2026-07-14) — Domain modules do not import LangGraph internals
+# spec §0.2: reverse-direction guard; specialists/handoff/tools/tool_executor
+# must not pull LangGraph types from main loop dir.
+[[tool.importlinter.contracts]]
+name = "Domain modules do not import LangGraph internals"
+type = "forbidden"
+source_modules = [
+    "app.domain.agent.tools",
+    "app.domain.agent.tool_executor",
+    "app.domain.agent.handoff",
+    "app.domain.agent.content_writer_specialist",
+    "app.domain.monitor.monitor_specialist",
+]
+forbidden_modules = [
+    "app.domain.agent.langgraph_nodes",
+    "app.domain.agent.react_graph",
+]
